@@ -91,10 +91,7 @@ export function HomeDashboard() {
       <div className="mx-auto max-w-[1400px] space-y-6">
         <header className="grid gap-4 rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6 shadow-[0_15px_45px_rgba(0,0,0,0.35)] md:grid-cols-[1.15fr_1fr] md:items-end">
           <div>
-            <p className="inline-block rounded-full border border-amber-100/35 bg-amber-100/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-amber-100">
-              Constellation Ledger
-            </p>
-            <h1 className="mt-3 text-3xl font-bold sm:text-4xl font-atlas">Novelts Home</h1>
+            <h1 className="text-3xl font-bold sm:text-4xl font-atlas">Novelts Home</h1>
           </div>
 
           <div>
@@ -137,153 +134,149 @@ export function HomeDashboard() {
           <section className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6">Loading local data...</section>
         ) : (
           <>
-            <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-              <div className="space-y-4">
-                <section className="grid grid-cols-2 gap-3">
-                  <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Current streak</p>
-                    <p className="mt-2 text-3xl font-bold font-atlas">{streak.current}</p>
-                  </article>
-                  <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Longest streak</p>
-                    <p className="mt-2 text-3xl font-bold font-atlas">{streak.longest}</p>
-                  </article>
-                  <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Novels</p>
-                    <p className="mt-2 text-3xl font-bold font-atlas">{activeNovels.length}</p>
-                  </article>
-                  <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Characters</p>
-                    <p className="mt-2 text-3xl font-bold font-atlas">{activeCharacters.length}</p>
-                  </article>
-                </section>
+            <section className="grid gap-4 xl:grid-cols-2">
+              <section className="grid grid-cols-2 gap-3 xl:col-start-1 xl:row-start-1">
+                <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Current streak</p>
+                  <p className="mt-2 text-3xl font-bold font-atlas">{streak.current}</p>
+                </article>
+                <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Longest streak</p>
+                  <p className="mt-2 text-3xl font-bold font-atlas">{streak.longest}</p>
+                </article>
+                <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Novels</p>
+                  <p className="mt-2 text-3xl font-bold font-atlas">{activeNovels.length}</p>
+                </article>
+                <article className="rounded-[1.5rem] bg-[#111629]/75 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-100/75 font-tech">Characters</p>
+                  <p className="mt-2 text-3xl font-bold font-atlas">{activeCharacters.length}</p>
+                </article>
+              </section>
 
-                <section className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-5">
-                  <h2 className="text-xl font-semibold font-atlas">Check-ins</h2>
-                  <div className="mt-3 flex flex-wrap gap-4">
-                    {monthChunks.map((chunk) => (
-                      <div key={chunk.key}>
-                        <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-amber-100/70 font-tech">{chunk.label}</p>
-                        <div className="inline-grid grid-flow-col auto-cols-[11px] grid-rows-7 gap-1">
-                          {chunk.cells.map((date, idx) => {
-                            if (!date) {
-                              return <div className="h-[11px] w-[11px] rounded-[3px] bg-transparent" key={`${chunk.key}-blank-${idx}`} />;
-                            }
+              <section className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-5 xl:col-start-2 xl:row-start-1">
+                <h2 className="text-xl font-semibold font-atlas">Add novel</h2>
+                <form className="mt-3 space-y-2" onSubmit={onAddNovel}>
+                  <input
+                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="Novel title"
+                    required
+                    value={title}
+                  />
+                  <input
+                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    onChange={(event) => setAuthor(event.target.value)}
+                    placeholder="Author"
+                    value={author}
+                  />
+                  <button
+                    className="rounded-2xl border border-amber-100/60 bg-amber-200/10 px-4 py-2 text-sm font-semibold tracking-wide text-amber-50 transition hover:bg-amber-200/20"
+                    type="submit"
+                  >
+                    Save novel
+                  </button>
+                </form>
+              </section>
 
-                            const record = state.checkIns[date];
-                            const level = record ? (record.sources.length > 1 ? 2 : 1) : 0;
-                            const cellColor =
-                              level === 2
-                                ? "bg-[#bfd0e6]"
-                                : level === 1
-                                ? "bg-[#748dab]"
-                                : "bg-[#324057]";
+              <section className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-5 xl:col-start-1 xl:row-start-2">
+                <h2 className="text-xl font-semibold font-atlas">Check-ins</h2>
+                <div className="mt-3 flex flex-wrap gap-4">
+                  {monthChunks.map((chunk) => (
+                    <div key={chunk.key}>
+                      <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-amber-100/70 font-tech">{chunk.label}</p>
+                      <div className="inline-grid grid-flow-col auto-cols-[11px] grid-rows-7 gap-1">
+                        {chunk.cells.map((date, idx) => {
+                          if (!date) {
+                            return <div className="h-[11px] w-[11px] rounded-[3px] bg-transparent" key={`${chunk.key}-blank-${idx}`} />;
+                          }
 
-                            return (
-                              <div
-                                className={`h-[11px] w-[11px] rounded-[3px] ${cellColor}`}
-                                key={date}
-                                onMouseEnter={(event) => {
-                                  setHoverInfo({
-                                    label: formatDateLabel(date),
-                                    x: event.clientX,
-                                    y: event.clientY
-                                  });
-                                }}
-                                onMouseLeave={() => setHoverInfo(null)}
-                                onMouseMove={(event) => {
-                                  setHoverInfo((prev) => (prev ? { ...prev, x: event.clientX, y: event.clientY } : prev));
-                                }}
-                              />
-                            );
-                          })}
-                        </div>
+                          const record = state.checkIns[date];
+                          const level = record ? (record.sources.length > 1 ? 2 : 1) : 0;
+                          const cellColor =
+                            level === 2
+                              ? "bg-[#bfd0e6]"
+                              : level === 1
+                              ? "bg-[#748dab]"
+                              : "bg-[#324057]";
+
+                          return (
+                            <div
+                              className={`h-[11px] w-[11px] rounded-[3px] ${cellColor}`}
+                              key={date}
+                              onMouseEnter={(event) => {
+                                setHoverInfo({
+                                  label: formatDateLabel(date),
+                                  x: event.clientX,
+                                  y: event.clientY
+                                });
+                              }}
+                              onMouseLeave={() => setHoverInfo(null)}
+                              onMouseMove={(event) => {
+                                setHoverInfo((prev) => (prev ? { ...prev, x: event.clientX, y: event.clientY } : prev));
+                              }}
+                            />
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-              <aside className="space-y-4">
-                <section className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-5">
-                  <h2 className="text-xl font-semibold font-atlas">Add novel</h2>
-                  <form className="mt-3 space-y-2" onSubmit={onAddNovel}>
-                    <input
-                      className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
-                      onChange={(event) => setTitle(event.target.value)}
-                      placeholder="Novel title"
-                      required
-                      value={title}
-                    />
-                    <input
-                      className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
-                      onChange={(event) => setAuthor(event.target.value)}
-                      placeholder="Author"
-                      value={author}
-                    />
-                    <button
-                      className="rounded-2xl border border-amber-100/60 bg-amber-200/10 px-4 py-2 text-sm font-semibold tracking-wide text-amber-50 transition hover:bg-amber-200/20"
-                      type="submit"
-                    >
-                      Save novel
-                    </button>
-                  </form>
-                </section>
+              <section className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-5 xl:col-start-2 xl:row-start-2">
+                <div className="flex flex-col gap-3">
+                  <h2 className="text-xl font-semibold font-atlas">Novel selection</h2>
+                  <input
+                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search by title or author"
+                    value={query}
+                  />
+                </div>
 
-                <section className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-5">
-                  <div className="flex flex-col gap-3">
-                    <h2 className="text-xl font-semibold font-atlas">Novel selection</h2>
-                    <input
-                      className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search by title or author"
-                      value={query}
-                    />
-                  </div>
+                <div className="themed-scrollbar mt-4 grid max-h-[430px] gap-3 overflow-y-auto pr-1 md:grid-cols-2">
+                  {filteredNovels.map((novel) => {
+                    const noteCount = activeNotes.filter((entry) => entry.novelId === novel.id).length;
+                    const characterCount = activeCharacters.filter((entry) => entry.novelId === novel.id).length;
+                    const wordCount = activeWords.filter((entry) => entry.novelId === novel.id).length;
+                    const workspaceHref = {
+                      pathname: `/novels/${novel.id}`,
+                      query: {
+                        title: novel.title,
+                        author: novel.author
+                      }
+                    };
 
-                  <div className="themed-scrollbar mt-4 grid max-h-[430px] gap-3 overflow-y-auto pr-1 md:grid-cols-2">
-                    {filteredNovels.map((novel) => {
-                      const noteCount = activeNotes.filter((entry) => entry.novelId === novel.id).length;
-                      const characterCount = activeCharacters.filter((entry) => entry.novelId === novel.id).length;
-                      const wordCount = activeWords.filter((entry) => entry.novelId === novel.id).length;
-                      const workspaceHref = {
-                        pathname: `/novels/${novel.id}`,
-                        query: {
-                          title: novel.title,
-                          author: novel.author
-                        }
-                      };
-
-                      return (
-                        <article className="rounded-2xl border border-cyan-100/35 bg-[#1a2140]/85 p-4" key={novel.id}>
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <Link className="text-lg font-semibold font-atlas text-amber-50 hover:text-cyan-100" href={workspaceHref}>
-                                {novel.title}
-                              </Link>
-                              <p className="text-xs text-amber-100/75 font-tech">{novel.author || "Unknown author"}</p>
-                            </div>
-                            <button
-                              className="rounded-xl border border-rose-200/50 px-2 py-1 text-[10px] uppercase tracking-wide text-rose-200"
-                              onClick={() => onDeleteNovel(novel.id, novel.title)}
-                              type="button"
-                            >
-                              Delete
-                            </button>
+                    return (
+                      <article className="rounded-2xl border border-cyan-100/35 bg-[#1a2140]/85 p-4" key={novel.id}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <Link className="text-lg font-semibold font-atlas text-amber-50 hover:text-cyan-100" href={workspaceHref}>
+                              {novel.title}
+                            </Link>
+                            <p className="text-xs text-amber-100/75 font-tech">{novel.author || "Unknown author"}</p>
                           </div>
-                          <p className="mt-3 text-xs text-amber-100/70 font-tech">
-                            {wordCount} words · {characterCount} characters · {noteCount} notes
-                          </p>
-                          <Link className="mt-2 inline-block text-xs text-cyan-100 font-tech" href={workspaceHref}>
-                            Open focused workspace
-                          </Link>
-                        </article>
-                      );
-                    })}
-                    {!filteredNovels.length ? <p className="text-sm text-amber-100/75 font-tech">No novels match your search.</p> : null}
-                  </div>
-                </section>
-              </aside>
+                          <button
+                            className="rounded-xl border border-rose-200/50 px-2 py-1 text-[10px] uppercase tracking-wide text-rose-200"
+                            onClick={() => onDeleteNovel(novel.id, novel.title)}
+                            type="button"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        <p className="mt-3 text-xs text-amber-100/70 font-tech">
+                          {wordCount} words · {characterCount} characters · {noteCount} notes
+                        </p>
+                        <Link className="mt-2 inline-block text-xs text-cyan-100 font-tech" href={workspaceHref}>
+                          Open focused workspace
+                        </Link>
+                      </article>
+                    );
+                  })}
+                  {!filteredNovels.length ? <p className="text-sm text-amber-100/75 font-tech">No novels match your search.</p> : null}
+                </div>
+              </section>
             </section>
 
             <section className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-5">
