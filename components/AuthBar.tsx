@@ -15,7 +15,7 @@ export function AuthBar() {
   const displayName = user?.username || user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-cyan-100/20 bg-[#0f1425]/90 backdrop-blur">
+    <header className="safe-top-inset sticky top-0 z-40 border-b border-cyan-100/20 bg-[#0f1425]">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 text-amber-50">
         <p className="font-atlas text-lg">Novelts</p>
         <div className="flex items-center gap-2">

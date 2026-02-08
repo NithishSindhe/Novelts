@@ -40,6 +40,7 @@ function withDeletedTag(tags?: string[]): string[] {
 export function useTracker() {
   const { isLoaded: authLoaded, userId } = useAuth();
   const [state, setState] = useState<TrackerState>(emptyState);
+  const [validDates, setValidDates] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [messageKind, setMessageKind] = useState<MessageKind>("info");
@@ -71,6 +72,10 @@ export function useTracker() {
         clearTimeout(messageTimerRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    setValidDates(allowedCheckInDates());
   }, []);
 
   useEffect(() => {
@@ -143,7 +148,6 @@ export function useTracker() {
 
   const streak = useMemo(() => calculateStreak(state.checkIns), [state.checkIns]);
   const checkInDates = useMemo(() => Object.keys(state.checkIns).sort().reverse(), [state.checkIns]);
-  const validDates = allowedCheckInDates();
 
   function applyCheckInIfMissing(current: TrackerState, date: string, source: CheckInSource) {
     if (current.checkIns[date]) {

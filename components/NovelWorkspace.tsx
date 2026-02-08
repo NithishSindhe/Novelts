@@ -208,7 +208,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
   }
 
   return (
-    <main className="theme-five min-h-screen bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 pb-12 pt-8 text-amber-50">
+    <main className="theme-five min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 safe-bottom-offset pt-8 text-amber-50">
       <div className="mx-auto max-w-[1450px] space-y-5">
         <header className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6">
           <Link
