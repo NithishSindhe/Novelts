@@ -20,8 +20,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" className="bg-[#0f1425]">
       <body className="min-h-dvh bg-[#0f1425]">
         <ClerkProvider>
-          <AuthBar />
-          {children}
+          <div className="flex min-h-dvh flex-col">
+            <AuthBar />
+            <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+          </div>
         </ClerkProvider>
       </body>
     </html>

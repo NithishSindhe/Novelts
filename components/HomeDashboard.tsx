@@ -87,7 +87,7 @@ export function HomeDashboard() {
   }
 
   return (
-    <main className="theme-five min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 safe-bottom-offset pt-8 text-amber-50">
+    <main className="theme-five flex-1 bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 safe-bottom-offset pt-8 text-amber-50">
       <div className="mx-auto max-w-[1400px] space-y-6">
         <header className="grid gap-4 rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6 shadow-[0_15px_45px_rgba(0,0,0,0.35)] md:grid-cols-[1.15fr_1fr] md:items-end">
           <div>

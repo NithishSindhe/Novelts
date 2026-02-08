@@ -2,11 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { formatDateLabel, todayDateId } from "@/lib/date";
 import { useTracker } from "@/lib/useTracker";
 
-const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
 const DELETED_TAG = "deleted";
 
 function hasDeletedTag(tags?: string[]): boolean {
@@ -73,15 +72,13 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
   const [characterName, setCharacterName] = useState("");
   const [characterRole, setCharacterRole] = useState("");
   const [characterTraits, setCharacterTraits] = useState("");
+  const [characterQuery, setCharacterQuery] = useState("");
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
   const [editingCharacter, setEditingCharacter] = useState({ name: "", role: "", traits: "" });
 
   const [noteContent, setNoteContent] = useState("");
-  const [noteScreenshot, setNoteScreenshot] = useState<string | undefined>(undefined);
-  const [noteImageError, setNoteImageError] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteContent, setEditingNoteContent] = useState("");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   function onAddWord(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -101,56 +98,8 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
 
   function onAddNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    addNote({ novelId, content: noteContent, screenshotDataUrl: noteScreenshot });
+    addNote({ novelId, content: noteContent });
     setNoteContent("");
-    setNoteScreenshot(undefined);
-    setNoteImageError("");
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  }
-
-  function onScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
-    setNoteImageError("");
-
-    const file = event.target.files?.[0];
-    if (!file) {
-      setNoteScreenshot(undefined);
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
-      setNoteImageError("Please select an image file.");
-      event.target.value = "";
-      return;
-    }
-
-    if (file.size > MAX_SCREENSHOT_BYTES) {
-      setNoteImageError("Screenshot is too large. Use an image under 2MB.");
-      event.target.value = "";
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setNoteScreenshot(reader.result);
-      }
-    };
-    reader.onerror = () => {
-      setNoteImageError("Could not read screenshot. Try another file.");
-      setNoteScreenshot(undefined);
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function clearScreenshot() {
-    setNoteScreenshot(undefined);
-    setNoteImageError("");
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
   }
 
   function onDeleteNote(noteId: string) {
@@ -207,8 +156,16 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
     setEditingCharacterId(null);
   }
 
+  const filteredCharacters = useMemo(() => {
+    const search = characterQuery.trim().toLowerCase();
+    if (!search) return characters;
+    return characters.filter((entry) =>
+      [entry.name, entry.role, entry.traits].some((value) => value.toLowerCase().includes(search))
+    );
+  }, [characters, characterQuery]);
+
   return (
-    <main className="theme-five min-h-dvh bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 safe-bottom-offset pt-8 text-amber-50">
+    <main className="theme-five flex-1 bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 safe-bottom-offset pt-8 text-amber-50">
       <div className="mx-auto max-w-[1450px] space-y-5">
         <header className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6">
           <Link
@@ -259,9 +216,9 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
             ) : null}
           </section>
         ) : (
-          <section className="grid gap-5 xl:grid-cols-[1.05fr_1.95fr]">
-            <aside className="space-y-4">
-              <article className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
+          <section className="grid gap-5 xl:grid-cols-[1.05fr_1.95fr] xl:items-stretch">
+            <aside className="grid gap-4 xl:h-full xl:grid-rows-3">
+              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
                 <h2 className="text-lg font-semibold font-atlas">Add note</h2>
                 {!state.checkIns[todayDateId()] ? (
                   <p className="text-xs text-amber-100/75 font-tech">Saving a note automatically checks in today.</p>
@@ -274,34 +231,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                     required
                     value={noteContent}
                   />
-                  <input
-                    accept="image/*"
-                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 file:mr-4 file:rounded-xl file:border-0 file:bg-amber-100/25 file:px-3 file:py-1 file:text-xs file:text-amber-50"
-                    onChange={onScreenshotChange}
-                    ref={fileInputRef}
-                    type="file"
-                  />
-                  {noteImageError ? <p className="text-xs text-rose-300">{noteImageError}</p> : null}
-                  {noteScreenshot ? (
-                    <div className="space-y-2 rounded-xl border border-cyan-100/25 bg-[#111629]/80 p-2">
-                      <p className="text-xs text-cyan-100/80 font-tech">Screenshot preview</p>
-                      <Image
-                        alt="Note screenshot preview"
-                        className="h-36 w-full rounded-lg object-cover"
-                        height={300}
-                        src={noteScreenshot}
-                        unoptimized
-                        width={500}
-                      />
-                      <button
-                        className="rounded-xl border border-cyan-100/40 px-3 py-1 text-xs text-cyan-100"
-                        onClick={clearScreenshot}
-                        type="button"
-                      >
-                        Remove screenshot
-                      </button>
-                    </div>
-                  ) : null}
+                  {/* Screenshot upload temporarily disabled. */}
                   <button
                     className="rounded-2xl border border-amber-100/60 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-50 transition hover:bg-amber-200/20"
                     type="submit"
@@ -311,7 +241,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                 </form>
               </article>
 
-              <article className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
+              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
                 <h2 className="text-lg font-semibold font-atlas">Add character</h2>
                 <form className="mt-3 space-y-2" onSubmit={onAddCharacter}>
                   <input
@@ -342,7 +272,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                 </form>
               </article>
 
-              <article className="rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
+              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
                 <h2 className="text-lg font-semibold font-atlas">Add word</h2>
                 <form className="mt-3 space-y-2" onSubmit={onAddWord}>
                   <input
@@ -374,11 +304,11 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
               </article>
             </aside>
 
-            <div className="grid gap-4 xl:grid-cols-2">
-              <article className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4">
+            <div className="grid items-start gap-4 xl:h-full xl:grid-cols-2">
+              <article className="order-2 flex h-[420px] min-h-0 max-h-[560px] flex-col rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4 sm:h-[65vh]">
                 <h3 className="text-lg font-semibold font-atlas">Words</h3>
-                <div className="themed-scrollbar mt-3 max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                  {words.slice(0, 40).map((entry) => (
+                <div className="themed-scrollbar mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pb-1 pr-1">
+                  {words.map((entry) => (
                     <div className="rounded-xl border border-cyan-100/25 bg-[#1a2140]/85 p-3" key={entry.id}>
                       {editingWordId === entry.id ? (
                         <div className="space-y-2">
@@ -435,10 +365,17 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                 </div>
               </article>
 
-              <article className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4">
+              <article className="order-1 flex h-[420px] min-h-0 max-h-[560px] flex-col rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4 sm:h-[65vh]">
                 <h3 className="text-lg font-semibold font-atlas">Characters</h3>
-                <div className="themed-scrollbar mt-3 max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                  {characters.slice(0, 40).map((entry) => (
+                <input
+                  aria-label="Search characters"
+                  className="mt-3 w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                  onChange={(event) => setCharacterQuery(event.target.value)}
+                  placeholder="Search characters"
+                  value={characterQuery}
+                />
+                <div className="themed-scrollbar mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pb-1 pr-1">
+                  {filteredCharacters.map((entry) => (
                     <div className="rounded-xl border border-cyan-100/25 bg-[#1a2140]/85 p-3" key={entry.id}>
                       {editingCharacterId === entry.id ? (
                         <div className="space-y-2">
@@ -493,13 +430,16 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                     </div>
                   ))}
                   {!characters.length ? <p className="text-sm text-amber-100/75 font-tech">No characters yet.</p> : null}
+                  {characters.length && !filteredCharacters.length ? (
+                    <p className="text-sm text-amber-100/75 font-tech">No characters match your search.</p>
+                  ) : null}
                 </div>
               </article>
 
-              <article className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4 xl:col-span-2">
+              <article className="order-3 min-h-[15rem] rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4 xl:col-span-2">
                 <h3 className="text-lg font-semibold font-atlas">Notes</h3>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {notes.slice(0, 60).map((entry) => (
+                  {notes.map((entry) => (
                     <div className="rounded-xl border border-cyan-100/25 bg-[#1a2140]/85 p-3" key={entry.id}>
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs text-cyan-100/80 font-tech">{formatDateLabel(entry.date)}</p>
