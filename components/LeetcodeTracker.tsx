@@ -11,9 +11,31 @@ const DIFFICULTY_STYLES: Record<Difficulty, string> = {
 };
 
 export function LeetcodeTracker() {
-  const { ready, isSolved, toggle, solvedCount, totalCount, patternProgress } = useLeetcode();
+  const {
+    ready,
+    isSolved,
+    toggle,
+    solvedCount,
+    totalCount,
+    patternProgress,
+    getProblemNote,
+    setProblemNote,
+    getPatternNote,
+    setPatternNote
+  } = useLeetcode();
   const [hideCompleted, setHideCompleted] = useState(false);
   const [activePatternId, setActivePatternId] = useState<number | null>(null);
+  const [openPatternNoteInitially, setOpenPatternNoteInitially] = useState(false);
+
+  function openPattern(patternId: number, focusPatternNote = false) {
+    setOpenPatternNoteInitially(focusPatternNote);
+    setActivePatternId(patternId);
+  }
+
+  function closePattern() {
+    setActivePatternId(null);
+    setOpenPatternNoteInitially(false);
+  }
 
   const overallPct = useMemo(() => {
     if (!totalCount) return 0;
@@ -25,11 +47,21 @@ export function LeetcodeTracker() {
     [activePatternId]
   );
 
+  const problemNoteCountForPattern = useMemo(() => {
+    return (pattern: LeetPattern) => {
+      let count = 0;
+      for (const problem of pattern.problems) {
+        if (getProblemNote(problem.key).trim()) count += 1;
+      }
+      return count;
+    };
+  }, [getProblemNote]);
+
   useEffect(() => {
     if (!activePattern) return;
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setActivePatternId(null);
+      if (event.key === "Escape") closePattern();
     }
 
     document.addEventListener("keydown", onKeyDown);
@@ -75,25 +107,57 @@ export function LeetcodeTracker() {
               const progress = patternProgress[pattern.id] ?? { solved: 0, total: pattern.problems.length };
               const pct = progress.total ? Math.round((progress.solved / progress.total) * 100) : 0;
               const complete = progress.solved === progress.total;
+              const problemNotes = problemNoteCountForPattern(pattern);
+              const hasPatternNote = Boolean(getPatternNote(pattern.id).trim());
 
               return (
-                <button
-                  className={`group flex h-full flex-col justify-between gap-4 rounded-[1.75rem] border bg-[#111629]/75 p-5 text-left transition hover:-translate-y-0.5 hover:bg-[#141a30]/85 ${
+                <div
+                  className={`group flex h-full cursor-pointer flex-col justify-between gap-4 rounded-[1.75rem] border bg-[#111629]/75 p-5 text-left transition hover:-translate-y-0.5 hover:bg-[#141a30]/85 ${
                     complete ? "border-emerald-300/45" : "border-amber-100/25 hover:border-cyan-100/40"
                   }`}
                   key={pattern.id}
-                  onClick={() => setActivePatternId(pattern.id)}
-                  type="button"
+                  onClick={() => openPattern(pattern.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openPattern(pattern.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <span className="font-tech text-xs text-amber-100/50">
                       {String(pattern.id).padStart(2, "0")}
                     </span>
-                    {complete ? (
-                      <span className="rounded-full border border-emerald-300/40 bg-emerald-300/10 px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-emerald-300">
-                        Done
-                      </span>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {problemNotes > 0 ? (
+                        <span className="rounded-full border border-cyan-100/40 bg-cyan-200/10 px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-cyan-100">
+                          {problemNotes} note{problemNotes > 1 ? "s" : ""}
+                        </span>
+                      ) : null}
+                      {complete ? (
+                        <span className="rounded-full border border-emerald-300/40 bg-emerald-300/10 px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-emerald-300">
+                          Done
+                        </span>
+                      ) : null}
+                      <button
+                        aria-label={`${hasPatternNote ? "Edit" : "Add"} pattern note for ${pattern.name}`}
+                        className={`shrink-0 rounded-full border p-1.5 transition ${
+                          hasPatternNote
+                            ? "border-cyan-100/60 bg-cyan-200/20 text-cyan-100"
+                            : "border-amber-100/25 text-amber-100/50 hover:border-cyan-100/40 hover:text-cyan-100"
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openPattern(pattern.id, true);
+                        }}
+                        title={hasPatternNote ? "Edit pattern note" : "Add pattern note"}
+                        type="button"
+                      >
+                        <NoteIcon filled={hasPatternNote} />
+                      </button>
+                    </div>
                   </div>
 
                   <h2 className="font-atlas text-lg font-semibold leading-snug">{pattern.name}</h2>
@@ -114,7 +178,7 @@ export function LeetcodeTracker() {
                       />
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </section>
@@ -123,12 +187,17 @@ export function LeetcodeTracker() {
 
       {activePattern ? (
         <PatternModal
+          getPatternNote={getPatternNote}
+          getProblemNote={getProblemNote}
           hideCompleted={hideCompleted}
+          initialShowPatternNote={openPatternNoteInitially}
           isSolved={isSolved}
-          onClose={() => setActivePatternId(null)}
+          onClose={closePattern}
           onToggleHideCompleted={() => setHideCompleted((value) => !value)}
           pattern={activePattern}
           progress={patternProgress[activePattern.id] ?? { solved: 0, total: activePattern.problems.length }}
+          setPatternNote={setPatternNote}
+          setProblemNote={setProblemNote}
           toggle={toggle}
         />
       ) : null}
@@ -136,12 +205,35 @@ export function LeetcodeTracker() {
   );
 }
 
+function NoteIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-3.5 w-3.5"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.75"
+      viewBox="0 0 24 24"
+    >
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V15l-5 5H5.5A1.5 1.5 0 0 1 4 18.5z" />
+      <path d="M14 20v-4.5A1.5 1.5 0 0 1 15.5 14H20" fill="none" />
+    </svg>
+  );
+}
+
 interface PatternModalProps {
   pattern: LeetPattern;
   progress: { solved: number; total: number };
   hideCompleted: boolean;
+  initialShowPatternNote: boolean;
   isSolved: (key: string) => boolean;
   toggle: (key: string) => void;
+  getProblemNote: (key: string) => string;
+  setProblemNote: (key: string, note: string) => void;
+  getPatternNote: (patternId: number) => string;
+  setPatternNote: (patternId: number, note: string) => void;
   onToggleHideCompleted: () => void;
   onClose: () => void;
 }
@@ -150,17 +242,30 @@ function PatternModal({
   pattern,
   progress,
   hideCompleted,
+  initialShowPatternNote,
   isSolved,
   toggle,
+  getProblemNote,
+  setProblemNote,
+  getPatternNote,
+  setPatternNote,
   onToggleHideCompleted,
   onClose
 }: PatternModalProps) {
   const pct = progress.total ? Math.round((progress.solved / progress.total) * 100) : 0;
   const complete = progress.solved === progress.total;
+  const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
+  const [showPatternNote, setShowPatternNote] = useState(
+    () => initialShowPatternNote || Boolean(getPatternNote(pattern.id).trim())
+  );
 
   const visibleProblems = hideCompleted
     ? pattern.problems.filter((problem) => !isSolved(problem.key))
     : pattern.problems;
+
+  function toggleNote(key: string) {
+    setOpenNotes((current) => ({ ...current, [key]: !current[key] }));
+  }
 
   return (
     <div
@@ -206,7 +311,7 @@ function PatternModal({
             </div>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               className={`rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
                 hideCompleted
@@ -218,7 +323,29 @@ function PatternModal({
             >
               {hideCompleted ? "Showing unsolved" : "Hide solved"}
             </button>
+            <button
+              className={`rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
+                showPatternNote
+                  ? "bg-cyan-200/20 text-cyan-100"
+                  : "border border-cyan-100/40 bg-cyan-200/10 text-cyan-100 hover:bg-cyan-200/20"
+              }`}
+              onClick={() => setShowPatternNote((value) => !value)}
+              type="button"
+            >
+              {showPatternNote ? "Hide pattern note" : "Pattern note"}
+            </button>
           </div>
+
+          {showPatternNote ? (
+            <textarea
+              autoFocus
+              className="themed-scrollbar mt-3 w-full resize-y rounded-2xl border border-cyan-100/30 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/40 focus:border-cyan-200"
+              defaultValue={getPatternNote(pattern.id)}
+              onChange={(event) => setPatternNote(pattern.id, event.target.value)}
+              placeholder="Notes for this pattern (approach, template, gotchas)..."
+              rows={3}
+            />
+          ) : null}
         </header>
 
         <ul className="themed-scrollbar divide-y divide-white/5 overflow-y-auto">
@@ -227,30 +354,57 @@ function PatternModal({
           ) : (
             visibleProblems.map((problem) => {
               const solved = isSolved(problem.key);
+              const hasNote = Boolean(getProblemNote(problem.key).trim());
+              const noteOpen = Boolean(openNotes[problem.key]);
               return (
-                <li className="flex items-center gap-3 px-5 py-2.5" key={problem.key}>
-                  <input
-                    aria-label={`Mark ${problem.title} as solved`}
-                    checked={solved}
-                    className="h-4 w-4 shrink-0 cursor-pointer accent-emerald-400"
-                    onChange={() => toggle(problem.key)}
-                    type="checkbox"
-                  />
-                  <a
-                    className={`flex-1 text-sm transition hover:text-cyan-200 ${
-                      solved ? "text-amber-100/45 line-through" : "text-amber-50"
-                    }`}
-                    href={problem.url}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    {problem.title}
-                  </a>
-                  <span
-                    className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide ${DIFFICULTY_STYLES[problem.difficulty]}`}
-                  >
-                    {problem.difficulty}
-                  </span>
+                <li className="px-5 py-2.5" key={problem.key}>
+                  <div className="flex items-center gap-3">
+                    <input
+                      aria-label={`Mark ${problem.title} as solved`}
+                      checked={solved}
+                      className="h-4 w-4 shrink-0 cursor-pointer accent-emerald-400"
+                      onChange={() => toggle(problem.key)}
+                      type="checkbox"
+                    />
+                    <a
+                      className={`flex-1 text-sm transition hover:text-cyan-200 ${
+                        solved ? "text-amber-100/45 line-through" : "text-amber-50"
+                      }`}
+                      href={problem.url}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {problem.title}
+                    </a>
+                    <button
+                      aria-label={`${hasNote ? "Edit" : "Add"} note for ${problem.title}`}
+                      className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide transition ${
+                        hasNote || noteOpen
+                          ? "border-cyan-100/50 bg-cyan-200/15 text-cyan-100"
+                          : "border-amber-100/30 text-amber-100/60 hover:bg-white/5"
+                      }`}
+                      onClick={() => toggleNote(problem.key)}
+                      type="button"
+                    >
+                      {hasNote ? "Note •" : "Note"}
+                    </button>
+                    <span
+                      className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide ${DIFFICULTY_STYLES[problem.difficulty]}`}
+                    >
+                      {problem.difficulty}
+                    </span>
+                  </div>
+
+                  {noteOpen ? (
+                    <textarea
+                      autoFocus
+                      className="themed-scrollbar mt-2 w-full resize-y rounded-2xl border border-cyan-100/30 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/40 focus:border-cyan-200"
+                      defaultValue={getProblemNote(problem.key)}
+                      onChange={(event) => setProblemNote(problem.key, event.target.value)}
+                      placeholder="Notes for this problem (approach, edge cases, complexity)..."
+                      rows={2}
+                    />
+                  ) : null}
                 </li>
               );
             })

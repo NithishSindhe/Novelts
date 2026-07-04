@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveUserId } from "@/lib/server/authUser";
-import { readTrackerState, writeTrackerState } from "@/lib/server/trackerRepo";
+import { readLeetcodeState, writeLeetcodeState } from "@/lib/server/leetcodeRepo";
 
 export async function GET() {
   const userId = await resolveUserId();
@@ -9,7 +9,7 @@ export async function GET() {
   }
 
   try {
-    const state = await readTrackerState(userId);
+    const state = await readLeetcodeState(userId);
     return NextResponse.json({ state });
   } catch (error) {
     return NextResponse.json(
@@ -33,7 +33,7 @@ export async function PUT(request: Request) {
   }
 
   try {
-    await writeTrackerState(userId, body.state);
+    await writeLeetcodeState(userId, body.state);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.log(error);

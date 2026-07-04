@@ -4,7 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { allowedCheckInDates, isDateAllowedForCheckIn, todayDateId } from "@/lib/date";
 import { createId } from "@/lib/id";
-import { emptyState, loadTrackerState, normalizeTrackerState, saveTrackerState } from "@/lib/storage";
+import { emptyState, loadTrackerState, mergeTrackerState, normalizeTrackerState, saveTrackerState, clearLocalTrackerState } from "@/lib/storage";
 import { calculateStreak } from "@/lib/streak";
 import type { CharacterEntry, CheckInSource, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
 
@@ -38,7 +38,10 @@ function withDeletedTag(tags?: string[]): string[] {
 }
 
 export function useTracker() {
-  const { isLoaded: authLoaded, userId } = useAuth();
+  const { isLoaded: authLoaded, userId: clerkUserId } = useAuth();
+  const devUserId =
+    process.env.NODE_ENV !== "production" ? process.env.NEXT_PUBLIC_DEV_CLOUD_USER_ID ?? null : null;
+  const userId = clerkUserId ?? devUserId;
   const [state, setState] = useState<TrackerState>(emptyState);
   const [validDates, setValidDates] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
@@ -90,12 +93,41 @@ export function useTracker() {
         setSyncMode("cloud");
         setCloudUserId(userId);
 
+        // Preserve any anonymous work done before sign-in by merging it into
+        // the cloud state, then persisting the merged result and clearing the
+        // local copy so future edits sync straight to the cloud.
+        const localState = loadTrackerState();
+        const hasLocalData =
+          localState.novels.length > 0 ||
+          localState.notes.length > 0 ||
+          localState.words.length > 0 ||
+          localState.characters.length > 0 ||
+          Object.keys(localState.checkIns).length > 0;
+
         try {
           const cloudResponse = await fetch("/api/tracker", { cache: "no-store" });
           if (cloudResponse.ok) {
             const payload = (await cloudResponse.json()) as { state?: unknown };
+            const cloudState = normalizeTrackerState(payload.state);
+            const merged = hasLocalData ? mergeTrackerState(localState, cloudState) : cloudState;
+
             if (!cancelled) {
-              setState(normalizeTrackerState(payload.state));
+              setState(merged);
+            }
+
+            if (hasLocalData) {
+              try {
+                await fetch("/api/tracker", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ state: merged })
+                });
+                clearLocalTrackerState();
+              } catch {
+                if (!cancelled) {
+                  showMessage("Merged local data but cloud save failed. Will retry on next change.", "warning", 5000);
+                }
+              }
             }
           } else if (!cancelled) {
             setState(emptyState);
