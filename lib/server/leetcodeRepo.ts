@@ -14,14 +14,22 @@ export async function readLeetcodeState(userId: string): Promise<LeetcodeState> 
   const sql = getDb();
 
   const [solved, problemNotes, patternNotes] = await Promise.all([
-    sql`select problem_key from public.leetcode_solved where user_id = ${userId}`,
+    sql`select problem_key, solved_at from public.leetcode_solved where user_id = ${userId}`,
     sql`select problem_key, note from public.leetcode_problem_notes where user_id = ${userId}`,
     sql`select pattern_id, note from public.leetcode_pattern_notes where user_id = ${userId}`
   ]);
 
+  const solvedRows = solved as Record<string, unknown>[];
+
   const state: LeetcodeState = {
-    solved: (solved as Record<string, unknown>[]).reduce<Record<string, boolean>>((acc, row) => {
+    solved: solvedRows.reduce<Record<string, boolean>>((acc, row) => {
       acc[String(row.problem_key)] = true;
+      return acc;
+    }, {}),
+    solvedAt: solvedRows.reduce<Record<string, string>>((acc, row) => {
+      if (row.solved_at != null) {
+        acc[String(row.problem_key)] = new Date(row.solved_at as string).toISOString();
+      }
       return acc;
     }, {}),
     problemNotes: (problemNotes as Record<string, unknown>[]).reduce<Record<string, string>>((acc, row) => {
@@ -50,9 +58,10 @@ export async function writeLeetcodeState(userId: string, input: unknown): Promis
   ];
 
   for (const key of Object.keys(state.solved)) {
+    const solvedAt = state.solvedAt[key] ?? null;
     statements.push(sql`
-      insert into public.leetcode_solved (user_id, problem_key)
-      values (${userId}, ${key})
+      insert into public.leetcode_solved (user_id, problem_key, solved_at)
+      values (${userId}, ${key}, coalesce(${solvedAt}::timestamptz, timezone('utc', now())))
     `);
   }
 

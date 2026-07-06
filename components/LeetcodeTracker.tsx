@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LEETCODE_PATTERNS, TOTAL_PROBLEMS, type Difficulty, type LeetPattern } from "@/lib/leetcodeData";
 import { useLeetcode } from "@/lib/useLeetcode";
+import { useMountTransition, type TransitionStatus } from "@/lib/useMountTransition";
 
 const DIFFICULTY_STYLES: Record<Difficulty, string> = {
-  Easy: "text-emerald-300 border-emerald-300/40 bg-emerald-300/10",
-  Medium: "text-amber-200 border-amber-200/40 bg-amber-200/10",
-  Hard: "text-rose-300 border-rose-300/40 bg-rose-300/10"
+  Easy: "text-emerald-600 dark:text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
+  Medium: "text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10",
+  Hard: "text-rose-600 dark:text-rose-400 border-rose-500/40 bg-rose-500/10"
 };
 
 export function LeetcodeTracker() {
   const {
     ready,
     isSolved,
+    getSolvedAt,
     toggle,
     solvedCount,
     totalCount,
@@ -47,6 +49,11 @@ export function LeetcodeTracker() {
     [activePatternId]
   );
 
+  const { shouldRender: modalMounted, status: modalStatus } = useMountTransition(Boolean(activePattern), 220);
+  const lastPatternRef = useRef<LeetPattern | null>(activePattern);
+  if (activePattern) lastPatternRef.current = activePattern;
+  const patternToRender = activePattern ?? lastPatternRef.current;
+
   const problemNoteCountForPattern = useMemo(() => {
     return (pattern: LeetPattern) => {
       let count = 0;
@@ -73,26 +80,26 @@ export function LeetcodeTracker() {
   }, [activePattern]);
 
   return (
-    <main className="theme-five flex-1 bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 safe-bottom-offset pt-8 text-amber-50">
+    <main className="theme-five flex-1 bg-background px-4 safe-bottom-offset pt-8 text-fg">
       <div className="mx-auto max-w-[1400px] space-y-6">
-        <header className="grid gap-4 rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6 shadow-[0_15px_45px_rgba(0,0,0,0.35)]">
+        <header className="grid gap-4 rounded-[2rem] border border-border bg-surface p-6 shadow-[0_15px_45px_rgba(0,0,0,0.12)]">
           <div>
             <h1 className="text-3xl font-bold sm:text-4xl font-atlas">LeetCode Patterns</h1>
-            <p className="mt-1 text-sm text-amber-100/70">
+            <p className="mt-1 text-sm text-fg-muted">
               {LEETCODE_PATTERNS.length} patterns · {TOTAL_PROBLEMS} problems · progress stored locally
             </p>
           </div>
 
           <div>
-            <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-amber-100/80 font-tech">
+            <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-fg-subtle font-tech">
               <span>Overall progress</span>
               <span>
                 {solvedCount} / {totalCount} ({overallPct}%)
               </span>
             </div>
-            <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-[#0e1324]">
+            <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-surface-2">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-amber-200 transition-all"
+                className="h-full rounded-full bg-accent transition-all"
                 style={{ width: `${overallPct}%` }}
               />
             </div>
@@ -100,21 +107,34 @@ export function LeetcodeTracker() {
         </header>
 
         {!ready ? (
-          <section className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6">Loading local data...</section>
+          <section className="rounded-[2rem] border border-border bg-surface p-6">Loading local data...</section>
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {LEETCODE_PATTERNS.map((pattern) => {
+            {LEETCODE_PATTERNS.map((pattern, index) => {
               const progress = patternProgress[pattern.id] ?? { solved: 0, total: pattern.problems.length };
               const pct = progress.total ? Math.round((progress.solved / progress.total) * 100) : 0;
               const complete = progress.solved === progress.total;
               const problemNotes = problemNoteCountForPattern(pattern);
               const hasPatternNote = Boolean(getPatternNote(pattern.id).trim());
 
+              const lastSolvedAt = pattern.problems.reduce<string>((latest, problem) => {
+                const ts = getSolvedAt(problem.key);
+                if (ts && (!latest || Date.parse(ts) > Date.parse(latest))) return ts;
+                return latest;
+              }, "");
+              const cardTooltip =
+                progress.solved > 0
+                  ? `${progress.solved}/${progress.total} solved${
+                      lastSolvedAt ? ` · last solved ${formatSolvedAt(lastSolvedAt)}` : ""
+                    }`
+                  : "No problems solved yet";
+
               return (
                 <div
-                  className={`group flex h-full cursor-pointer flex-col justify-between gap-4 rounded-[1.75rem] border bg-[#111629]/75 p-5 text-left transition hover:-translate-y-0.5 hover:bg-[#141a30]/85 ${
-                    complete ? "border-emerald-300/45" : "border-amber-100/25 hover:border-cyan-100/40"
+                  className={`group flex h-full cursor-pointer flex-col justify-between gap-4 rounded-[1.75rem] border bg-surface p-5 text-left transition-transform transition-colors duration-200 animate-rise-in hover:-translate-y-0.5 hover:bg-surface-2 ${
+                    complete ? "border-success" : "border-border hover:border-accent-border"
                   }`}
+                  style={{ animationDelay: `${Math.min(index * 35, 420)}ms` }}
                   key={pattern.id}
                   onClick={() => openPattern(pattern.id)}
                   onKeyDown={(event) => {
@@ -125,19 +145,20 @@ export function LeetcodeTracker() {
                   }}
                   role="button"
                   tabIndex={0}
+                  title={cardTooltip}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <span className="font-tech text-xs text-amber-100/50">
+                    <span className="font-tech text-xs text-fg-subtle">
                       {String(pattern.id).padStart(2, "0")}
                     </span>
                     <div className="flex items-center gap-2">
                       {problemNotes > 0 ? (
-                        <span className="rounded-full border border-cyan-100/40 bg-cyan-200/10 px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-cyan-100">
+                        <span className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-accent">
                           {problemNotes} note{problemNotes > 1 ? "s" : ""}
                         </span>
                       ) : null}
                       {complete ? (
-                        <span className="rounded-full border border-emerald-300/40 bg-emerald-300/10 px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-emerald-300">
+                        <span className="rounded-full border border-success px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-success">
                           Done
                         </span>
                       ) : null}
@@ -145,8 +166,8 @@ export function LeetcodeTracker() {
                         aria-label={`${hasPatternNote ? "Edit" : "Add"} pattern note for ${pattern.name}`}
                         className={`shrink-0 rounded-full border p-1.5 transition ${
                           hasPatternNote
-                            ? "border-cyan-100/60 bg-cyan-200/20 text-cyan-100"
-                            : "border-amber-100/25 text-amber-100/50 hover:border-cyan-100/40 hover:text-cyan-100"
+                            ? "border-accent-border bg-accent-soft text-accent"
+                            : "border-border text-fg-subtle hover:border-accent-border hover:text-accent"
                         }`}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -164,15 +185,15 @@ export function LeetcodeTracker() {
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between font-tech text-xs">
-                      <span className={complete ? "text-emerald-300" : "text-amber-100/70"}>
+                      <span className={complete ? "text-success" : "text-fg-muted"}>
                         {progress.solved}/{progress.total} solved
                       </span>
-                      <span className="text-amber-100/50">{pct}%</span>
+                      <span className="text-fg-subtle">{pct}%</span>
                     </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-[#0e1324]">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
                       <div
                         className={`h-full rounded-full transition-all ${
-                          complete ? "bg-emerald-300" : "bg-gradient-to-r from-cyan-300 to-amber-200"
+                          complete ? "bg-success" : "bg-accent"
                         }`}
                         style={{ width: `${pct}%` }}
                       />
@@ -185,17 +206,19 @@ export function LeetcodeTracker() {
         )}
       </div>
 
-      {activePattern ? (
+      {modalMounted && patternToRender ? (
         <PatternModal
+          status={modalStatus}
           getPatternNote={getPatternNote}
           getProblemNote={getProblemNote}
           hideCompleted={hideCompleted}
           initialShowPatternNote={openPatternNoteInitially}
           isSolved={isSolved}
+          getSolvedAt={getSolvedAt}
           onClose={closePattern}
           onToggleHideCompleted={() => setHideCompleted((value) => !value)}
-          pattern={activePattern}
-          progress={patternProgress[activePattern.id] ?? { solved: 0, total: activePattern.problems.length }}
+          pattern={patternToRender}
+          progress={patternProgress[patternToRender.id] ?? { solved: 0, total: patternToRender.problems.length }}
           setPatternNote={setPatternNote}
           setProblemNote={setProblemNote}
           toggle={toggle}
@@ -203,6 +226,19 @@ export function LeetcodeTracker() {
       ) : null}
     </main>
   );
+}
+
+function formatSolvedAt(iso: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 
 function NoteIcon({ filled }: { filled: boolean }) {
@@ -226,9 +262,11 @@ function NoteIcon({ filled }: { filled: boolean }) {
 interface PatternModalProps {
   pattern: LeetPattern;
   progress: { solved: number; total: number };
+  status: TransitionStatus;
   hideCompleted: boolean;
   initialShowPatternNote: boolean;
   isSolved: (key: string) => boolean;
+  getSolvedAt: (key: string) => string;
   toggle: (key: string) => void;
   getProblemNote: (key: string) => string;
   setProblemNote: (key: string, note: string) => void;
@@ -241,9 +279,11 @@ interface PatternModalProps {
 function PatternModal({
   pattern,
   progress,
+  status,
   hideCompleted,
   initialShowPatternNote,
   isSolved,
+  getSolvedAt,
   toggle,
   getProblemNote,
   setProblemNote,
@@ -263,6 +303,8 @@ function PatternModal({
     ? pattern.problems.filter((problem) => !isSolved(problem.key))
     : pattern.problems;
 
+  const entering = status === "entering";
+
   function toggleNote(key: string) {
     setOpenNotes((current) => ({ ...current, [key]: !current[key] }));
   }
@@ -270,23 +312,27 @@ function PatternModal({
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4 ${
+        entering ? "animate-fade-in" : "animate-fade-out"
+      }`}
       onClick={onClose}
       role="dialog"
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] border border-amber-100/25 bg-[#111629] shadow-[0_20px_60px_rgba(0,0,0,0.5)] sm:rounded-[2rem]"
+        className={`flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.3)] sm:rounded-[2rem] ${
+          entering ? "animate-sheet-in sm:animate-modal-in" : "animate-sheet-out sm:animate-modal-out"
+        }`}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="border-b border-white/10 p-5">
+        <header className="border-b border-border p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span className="font-tech text-xs text-amber-100/50">{String(pattern.id).padStart(2, "0")}</span>
+              <span className="font-tech text-xs text-fg-subtle">{String(pattern.id).padStart(2, "0")}</span>
               <h2 className="font-atlas text-xl font-semibold">{pattern.name}</h2>
             </div>
             <button
               aria-label="Close"
-              className="rounded-full border border-amber-100/40 px-2.5 py-0.5 font-tech text-sm text-amber-100/70 transition hover:bg-white/10 hover:text-amber-50"
+              className="rounded-full border border-border px-2.5 py-0.5 font-tech text-sm text-fg-muted transition hover:bg-surface-2 hover:text-fg"
               onClick={onClose}
               type="button"
             >
@@ -296,15 +342,15 @@ function PatternModal({
 
           <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between font-tech text-xs">
-              <span className={complete ? "text-emerald-300" : "text-amber-100/70"}>
+              <span className={complete ? "text-success" : "text-fg-muted"}>
                 {progress.solved}/{progress.total} solved
               </span>
-              <span className="text-amber-100/50">{pct}%</span>
+              <span className="text-fg-subtle">{pct}%</span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-[#0e1324]">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
               <div
                 className={`h-full rounded-full transition-all ${
-                  complete ? "bg-emerald-300" : "bg-gradient-to-r from-cyan-300 to-amber-200"
+                  complete ? "bg-success" : "bg-accent"
                 }`}
                 style={{ width: `${pct}%` }}
               />
@@ -315,8 +361,8 @@ function PatternModal({
             <button
               className={`rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
                 hideCompleted
-                  ? "bg-zinc-200 text-zinc-900"
-                  : "border border-amber-100/60 bg-amber-200/10 text-amber-50 hover:bg-amber-200/20"
+                  ? "bg-accent text-accent-fg"
+                  : "border border-border bg-surface-2 text-fg-muted hover:text-fg"
               }`}
               onClick={onToggleHideCompleted}
               type="button"
@@ -326,8 +372,8 @@ function PatternModal({
             <button
               className={`rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
                 showPatternNote
-                  ? "bg-cyan-200/20 text-cyan-100"
-                  : "border border-cyan-100/40 bg-cyan-200/10 text-cyan-100 hover:bg-cyan-200/20"
+                  ? "bg-accent-soft text-accent"
+                  : "border border-border text-fg-muted hover:text-accent"
               }`}
               onClick={() => setShowPatternNote((value) => !value)}
               type="button"
@@ -339,7 +385,7 @@ function PatternModal({
           {showPatternNote ? (
             <textarea
               autoFocus
-              className="themed-scrollbar mt-3 w-full resize-y rounded-2xl border border-cyan-100/30 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/40 focus:border-cyan-200"
+              className="themed-scrollbar mt-3 w-full resize-y rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent animate-expand-in"
               defaultValue={getPatternNote(pattern.id)}
               onChange={(event) => setPatternNote(pattern.id, event.target.value)}
               placeholder="Notes for this pattern (approach, template, gotchas)..."
@@ -348,12 +394,13 @@ function PatternModal({
           ) : null}
         </header>
 
-        <ul className="themed-scrollbar divide-y divide-white/5 overflow-y-auto">
+        <ul className="themed-scrollbar divide-y divide-border overflow-y-auto">
           {visibleProblems.length === 0 ? (
-            <li className="px-5 py-6 text-sm text-amber-100/50">All problems solved in this pattern.</li>
+            <li className="px-5 py-6 text-sm text-fg-subtle">All problems solved in this pattern.</li>
           ) : (
             visibleProblems.map((problem) => {
               const solved = isSolved(problem.key);
+              const solvedLabel = solved ? formatSolvedAt(getSolvedAt(problem.key)) : "";
               const hasNote = Boolean(getProblemNote(problem.key).trim());
               const noteOpen = Boolean(openNotes[problem.key]);
               return (
@@ -362,13 +409,13 @@ function PatternModal({
                     <input
                       aria-label={`Mark ${problem.title} as solved`}
                       checked={solved}
-                      className="h-4 w-4 shrink-0 cursor-pointer accent-emerald-400"
+                      className="h-4 w-4 shrink-0 cursor-pointer accent-emerald-500"
                       onChange={() => toggle(problem.key)}
                       type="checkbox"
                     />
                     <a
-                      className={`flex-1 text-sm transition hover:text-cyan-200 ${
-                        solved ? "text-amber-100/45 line-through" : "text-amber-50"
+                      className={`flex-1 text-sm transition hover:text-accent ${
+                        solved ? "text-fg-subtle line-through" : "text-fg"
                       }`}
                       href={problem.url}
                       rel="noreferrer"
@@ -380,8 +427,8 @@ function PatternModal({
                       aria-label={`${hasNote ? "Edit" : "Add"} note for ${problem.title}`}
                       className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide transition ${
                         hasNote || noteOpen
-                          ? "border-cyan-100/50 bg-cyan-200/15 text-cyan-100"
-                          : "border-amber-100/30 text-amber-100/60 hover:bg-white/5"
+                          ? "border-accent-border bg-accent-soft text-accent"
+                          : "border-border text-fg-muted hover:bg-surface-2"
                       }`}
                       onClick={() => toggleNote(problem.key)}
                       type="button"
@@ -395,10 +442,16 @@ function PatternModal({
                     </span>
                   </div>
 
+                  {solved ? (
+                    <p className="mt-1 pl-7 font-tech text-[10px] text-success">
+                      {solvedLabel ? `Solved · ${solvedLabel}` : "Solved"}
+                    </p>
+                  ) : null}
+
                   {noteOpen ? (
                     <textarea
                       autoFocus
-                      className="themed-scrollbar mt-2 w-full resize-y rounded-2xl border border-cyan-100/30 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/40 focus:border-cyan-200"
+                      className="themed-scrollbar mt-2 w-full resize-y rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent animate-expand-in"
                       defaultValue={getProblemNote(problem.key)}
                       onChange={(event) => setProblemNote(problem.key, event.target.value)}
                       placeholder="Notes for this problem (approach, edge cases, complexity)..."

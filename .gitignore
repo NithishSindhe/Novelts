@@ -32,3 +32,11 @@ supabase/.branches/
 .DS_Store
 .vscode/
 .idea/
+
+# Agent / editor tooling
+.agents/
+.claude/
+.mcp.json
+.neon
+opencode.json
+skills-lock.json

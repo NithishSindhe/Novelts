@@ -3,22 +3,26 @@
 //
 // State shape:
 //   solved:        map of problem key (`${patternId}:${index}`) -> true
+//   solvedAt:      map of problem key -> ISO-8601 UTC timestamp of first solve
 //   problemNotes:  map of problem key -> note text
 //   patternNotes:  map of pattern id (as string) -> note text
 
 const STORAGE_KEY = "leetcode-tracker-local-first:v1";
 
 export type SolvedMap = Record<string, boolean>;
+export type TimestampMap = Record<string, string>;
 export type NotesMap = Record<string, string>;
 
 export interface LeetcodeState {
   solved: SolvedMap;
+  solvedAt: TimestampMap;
   problemNotes: NotesMap;
   patternNotes: NotesMap;
 }
 
 export const emptyState: LeetcodeState = {
   solved: {},
+  solvedAt: {},
   problemNotes: {},
   patternNotes: {}
 };
@@ -28,6 +32,20 @@ function normalizeSolved(input: unknown): SolvedMap {
   const result: SolvedMap = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (value === true) result[key] = true;
+  }
+  return result;
+}
+
+// Accepts a map of problem key -> ISO timestamp. Values must be valid,
+// non-empty strings that parse as dates; anything else is dropped.
+function normalizeTimestamps(input: unknown, solved: SolvedMap): TimestampMap {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const result: TimestampMap = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value !== "string" || value.length === 0) continue;
+    if (Number.isNaN(Date.parse(value))) continue;
+    // Only keep timestamps for keys that are actually solved.
+    if (solved[key]) result[key] = value;
   }
   return result;
 }
@@ -50,8 +68,10 @@ export function normalizeState(input: unknown): LeetcodeState {
 
   // New format: has a `solved` key.
   if ("solved" in parsed || "problemNotes" in parsed || "patternNotes" in parsed) {
+    const solved = normalizeSolved(parsed.solved);
     return {
-      solved: normalizeSolved(parsed.solved),
+      solved,
+      solvedAt: normalizeTimestamps(parsed.solvedAt, solved),
       problemNotes: normalizeNotes(parsed.problemNotes),
       patternNotes: normalizeNotes(parsed.patternNotes)
     };
@@ -60,6 +80,7 @@ export function normalizeState(input: unknown): LeetcodeState {
   // Legacy format: the whole object was a flat solved map (`{ key: true }`).
   return {
     solved: normalizeSolved(parsed),
+    solvedAt: {},
     problemNotes: {},
     patternNotes: {}
   };
@@ -100,8 +121,25 @@ function mergeNotes(local: NotesMap, cloud: NotesMap): NotesMap {
 }
 
 export function mergeLeetcodeState(local: LeetcodeState, cloud: LeetcodeState): LeetcodeState {
+  const solved = { ...local.solved, ...cloud.solved };
+
+  // Keep the earliest known timestamp on conflict (first time the problem was
+  // solved anywhere). Only retain timestamps for keys that end up solved.
+  const solvedAt: TimestampMap = {};
+  for (const [key, value] of Object.entries({ ...local.solvedAt, ...cloud.solvedAt })) {
+    if (!solved[key]) continue;
+    const localTs = local.solvedAt[key];
+    const cloudTs = cloud.solvedAt[key];
+    if (localTs && cloudTs) {
+      solvedAt[key] = Date.parse(localTs) <= Date.parse(cloudTs) ? localTs : cloudTs;
+    } else {
+      solvedAt[key] = value;
+    }
+  }
+
   return {
-    solved: { ...local.solved, ...cloud.solved },
+    solved,
+    solvedAt,
     problemNotes: mergeNotes(local.problemNotes, cloud.problemNotes),
     patternNotes: mergeNotes(local.patternNotes, cloud.patternNotes)
   };

@@ -116,16 +116,21 @@ export function useLeetcode() {
   const toggle = useCallback((key: string) => {
     setState((current) => {
       const solved = { ...current.solved };
+      const solvedAt = { ...current.solvedAt };
       if (solved[key]) {
         delete solved[key];
+        delete solvedAt[key];
       } else {
         solved[key] = true;
+        solvedAt[key] = new Date().toISOString();
       }
-      return { ...current, solved };
+      return { ...current, solved, solvedAt };
     });
   }, []);
 
   const isSolved = useCallback((key: string) => Boolean(state.solved[key]), [state.solved]);
+
+  const getSolvedAt = useCallback((key: string) => state.solvedAt[key] ?? "", [state.solvedAt]);
 
   const setProblemNote = useCallback((key: string, note: string) => {
     setState((current) => {
@@ -173,6 +178,7 @@ export function useLeetcode() {
   return {
     ready,
     isSolved,
+    getSolvedAt,
     toggle,
     solvedCount,
     totalCount: TOTAL_PROBLEMS,

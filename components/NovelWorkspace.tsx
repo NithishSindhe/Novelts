@@ -2,9 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateLabel, todayDateId } from "@/lib/date";
 import { useTracker } from "@/lib/useTracker";
+import { useMountTransition } from "@/lib/useMountTransition";
 
 const DELETED_TAG = "deleted";
 
@@ -164,50 +165,57 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
     );
   }, [characters, characterQuery]);
 
+  const { shouldRender: toastMounted, status: toastStatus } = useMountTransition(Boolean(message), 200);
+  const lastToastRef = useRef({ text: message, kind: messageKind });
+  if (message) lastToastRef.current = { text: message, kind: messageKind };
+  const toast = message ? { text: message, kind: messageKind } : lastToastRef.current;
+
   return (
-    <main className="theme-five flex-1 bg-[radial-gradient(circle_at_20%_20%,#f9f2c7_0%,transparent_25%),radial-gradient(circle_at_80%_10%,#d1f2ff_0%,transparent_35%),linear-gradient(135deg,#132133,#2a3557,#3a2b52)] px-4 safe-bottom-offset pt-8 text-amber-50">
+    <main className="theme-five flex-1 bg-background px-4 safe-bottom-offset pt-8 text-fg">
       <div className="mx-auto max-w-[1450px] space-y-5">
-        <header className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6">
+        <header className="rounded-[2rem] border border-border bg-surface p-6 animate-rise-in">
           <Link
-            className="rounded-2xl border border-cyan-100/40 bg-cyan-200/10 px-3 py-1 text-xs text-cyan-100 transition hover:bg-cyan-200/25"
+            className="rounded-2xl border border-accent-border bg-accent-soft px-3 py-1 text-xs text-accent transition hover:bg-accent hover:text-accent-fg"
             href="/"
           >
             Back
           </Link>
           <h1 className="mt-3 text-3xl font-bold font-atlas">{novel?.title ?? "Novel workspace"}</h1>
-          <p className="text-sm text-amber-100/80 font-tech">{novel?.author || "Unknown author"}</p>
+          <p className="text-sm text-fg-muted font-tech">{novel?.author || "Unknown author"}</p>
         </header>
 
-        {message ? (
+        {toastMounted ? (
           <div className="fixed right-4 top-20 z-50">
             <div
               className={`rounded-full px-4 py-2 text-xs font-semibold shadow-lg ${
-                messageKind === "warning"
-                  ? "border border-amber-200/80 bg-amber-200 text-amber-950"
-                  : "border border-cyan-100/60 bg-cyan-100 text-cyan-950"
+                toastStatus === "entering" ? "animate-toast-in" : "animate-toast-out"
+              } ${
+                toast.kind === "warning"
+                  ? "border border-accent-border bg-accent text-accent-fg"
+                  : "border border-border bg-surface text-fg"
               }`}
             >
-              {message}
+              {toast.text}
             </div>
           </div>
         ) : null}
 
         {!ready ? (
-          <section className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6">Loading local data...</section>
+          <section className="rounded-[2rem] border border-border bg-surface p-6">Loading local data...</section>
         ) : !novel ? (
-          <section className="rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-6 text-sm font-tech">
+          <section className="rounded-[2rem] border border-border bg-surface p-6 text-sm font-tech">
             <p>{recoveringNovel ? "Opening novel workspace..." : "This novel could not be loaded."}</p>
             {!recoveringNovel ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
-                  className="rounded-2xl border border-cyan-100/50 bg-cyan-200/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-200/25"
+                  className="rounded-2xl border border-accent-border bg-accent-soft px-3 py-1.5 text-xs text-accent transition hover:bg-accent hover:text-accent-fg"
                   onClick={() => window.location.reload()}
                   type="button"
                 >
                   Retry load
                 </button>
                 <Link
-                  className="rounded-2xl border border-amber-100/40 bg-amber-100/10 px-3 py-1.5 text-xs text-amber-100 transition hover:bg-amber-100/20"
+                  className="rounded-2xl border border-border bg-surface-2 px-3 py-1.5 text-xs text-fg-muted transition hover:text-fg"
                   href="/"
                 >
                   Back
@@ -218,14 +226,14 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
         ) : (
           <section className="grid gap-5 xl:grid-cols-[1.05fr_1.95fr] xl:items-stretch">
             <aside className="grid gap-4 xl:h-full xl:grid-rows-3">
-              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
+              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-border bg-surface p-4 animate-rise-in" style={{ animationDelay: "60ms" }}>
                 <h2 className="text-lg font-semibold font-atlas">Add note</h2>
                 {!state.checkIns[todayDateId()] ? (
-                  <p className="text-xs text-amber-100/75 font-tech">Saving a note automatically checks in today.</p>
+                  <p className="text-xs text-fg-muted font-tech">Saving a note automatically checks in today.</p>
                 ) : null}
                 <form className="mt-3 space-y-2" onSubmit={onAddNote}>
                   <textarea
-                    className="min-h-28 w-full resize-y rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    className="min-h-28 w-full resize-y rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     onChange={(event) => setNoteContent(event.target.value)}
                     placeholder="Write your chapter note"
                     required
@@ -233,7 +241,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                   />
                   {/* Screenshot upload temporarily disabled. */}
                   <button
-                    className="rounded-2xl border border-amber-100/60 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-50 transition hover:bg-amber-200/20"
+                    className="rounded-2xl border border-accent-border bg-accent-soft px-4 py-2 text-sm font-semibold text-fg transition hover:bg-accent hover:text-accent-fg"
                     type="submit"
                   >
                     Save note
@@ -241,30 +249,30 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                 </form>
               </article>
 
-              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
+              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-border bg-surface p-4 animate-rise-in" style={{ animationDelay: "120ms" }}>
                 <h2 className="text-lg font-semibold font-atlas">Add character</h2>
                 <form className="mt-3 space-y-2" onSubmit={onAddCharacter}>
                   <input
-                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     onChange={(event) => setCharacterName(event.target.value)}
                     placeholder="Name"
                     required
                     value={characterName}
                   />
                   <input
-                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     onChange={(event) => setCharacterRole(event.target.value)}
                     placeholder="Role"
                     value={characterRole}
                   />
                   <input
-                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     onChange={(event) => setCharacterTraits(event.target.value)}
                     placeholder="Traits"
                     value={characterTraits}
                   />
                   <button
-                    className="rounded-2xl border border-amber-100/60 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-50 transition hover:bg-amber-200/20"
+                    className="rounded-2xl border border-accent-border bg-accent-soft px-4 py-2 text-sm font-semibold text-fg transition hover:bg-accent hover:text-accent-fg"
                     type="submit"
                   >
                     Save character
@@ -272,30 +280,30 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                 </form>
               </article>
 
-              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-cyan-100/35 bg-[#1a2140]/85 p-4">
+              <article className="flex h-full min-h-[15rem] flex-col rounded-[2rem] border border-border bg-surface p-4 animate-rise-in" style={{ animationDelay: "180ms" }}>
                 <h2 className="text-lg font-semibold font-atlas">Add word</h2>
                 <form className="mt-3 space-y-2" onSubmit={onAddWord}>
                   <input
-                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     onChange={(event) => setWord(event.target.value)}
                     placeholder="Word"
                     required
                     value={word}
                   />
                   <input
-                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     onChange={(event) => setMeaning(event.target.value)}
                     placeholder="Meaning"
                     value={meaning}
                   />
                   <input
-                    className="w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                    className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     onChange={(event) => setContext(event.target.value)}
                     placeholder="Context"
                     value={context}
                   />
                   <button
-                    className="rounded-2xl border border-amber-100/60 bg-amber-200/10 px-4 py-2 text-sm font-semibold text-amber-50 transition hover:bg-amber-200/20"
+                    className="rounded-2xl border border-accent-border bg-accent-soft px-4 py-2 text-sm font-semibold text-fg transition hover:bg-accent hover:text-accent-fg"
                     type="submit"
                   >
                     Save word
@@ -305,38 +313,38 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
             </aside>
 
             <div className="grid items-start gap-4 xl:h-full xl:grid-cols-2">
-              <article className="order-2 flex h-[420px] min-h-0 max-h-[560px] flex-col rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4 sm:h-[65vh]">
+              <article className="order-2 flex h-[420px] min-h-0 max-h-[560px] flex-col rounded-[2rem] border border-border bg-surface p-4 animate-rise-in sm:h-[65vh]" style={{ animationDelay: "150ms" }}>
                 <h3 className="text-lg font-semibold font-atlas">Words</h3>
                 <div className="themed-scrollbar mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pb-1 pr-1">
                   {words.map((entry) => (
-                    <div className="rounded-xl border border-cyan-100/25 bg-[#1a2140]/85 p-3" key={entry.id}>
+                    <div className="rounded-xl border border-border bg-surface-2 p-3" key={entry.id}>
                       {editingWordId === entry.id ? (
-                        <div className="space-y-2">
+                        <div className="space-y-2 animate-expand-in">
                           <input
-                            className="w-full rounded-xl border border-amber-100/35 bg-[#0e1324] px-2 py-1 text-sm text-amber-50 outline-none focus:border-cyan-200"
+                            className="w-full rounded-xl border border-border bg-surface-2 px-2 py-1 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingWord((prev) => ({ ...prev, word: event.target.value }))}
                             value={editingWord.word}
                           />
                           <input
-                            className="w-full rounded-xl border border-amber-100/35 bg-[#0e1324] px-2 py-1 text-sm text-amber-50 outline-none focus:border-cyan-200"
+                            className="w-full rounded-xl border border-border bg-surface-2 px-2 py-1 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingWord((prev) => ({ ...prev, meaning: event.target.value }))}
                             value={editingWord.meaning}
                           />
                           <input
-                            className="w-full rounded-xl border border-amber-100/35 bg-[#0e1324] px-2 py-1 text-sm text-amber-50 outline-none focus:border-cyan-200"
+                            className="w-full rounded-xl border border-border bg-surface-2 px-2 py-1 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingWord((prev) => ({ ...prev, context: event.target.value }))}
                             value={editingWord.context}
                           />
                           <div className="flex gap-2">
                             <button
-                              className="rounded-xl border border-cyan-100/40 px-2 py-1 text-xs text-cyan-100"
+                              className="rounded-xl border border-accent-border px-2 py-1 text-xs text-accent"
                               onClick={saveEditWord}
                               type="button"
                             >
                               Save
                             </button>
                             <button
-                              className="rounded-xl border border-slate-300/40 px-2 py-1 text-xs text-slate-200"
+                              className="rounded-xl border border-border px-2 py-1 text-xs text-fg-muted"
                               onClick={() => setEditingWordId(null)}
                               type="button"
                             >
@@ -349,61 +357,61 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                           <div className="flex items-start justify-between gap-2">
                             <p className="font-semibold">{entry.word}</p>
                             <button
-                              className="rounded-xl border border-cyan-100/40 px-2 py-1 text-[10px] uppercase tracking-wide text-cyan-100"
+                              className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
                               onClick={() => startEditWord(entry.id)}
                               type="button"
                             >
                               Edit
                             </button>
                           </div>
-                          <p className="text-xs text-amber-100/80 font-tech">{entry.meaning || "No meaning"}</p>
+                          <p className="text-xs text-fg-muted font-tech">{entry.meaning || "No meaning"}</p>
                         </>
                       )}
                     </div>
                   ))}
-                  {!words.length ? <p className="text-sm text-amber-100/75 font-tech">No words yet.</p> : null}
+                  {!words.length ? <p className="text-sm text-fg-muted font-tech">No words yet.</p> : null}
                 </div>
               </article>
 
-              <article className="order-1 flex h-[420px] min-h-0 max-h-[560px] flex-col rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4 sm:h-[65vh]">
+              <article className="order-1 flex h-[420px] min-h-0 max-h-[560px] flex-col rounded-[2rem] border border-border bg-surface p-4 animate-rise-in sm:h-[65vh]" style={{ animationDelay: "90ms" }}>
                 <h3 className="text-lg font-semibold font-atlas">Characters</h3>
                 <input
                   aria-label="Search characters"
-                  className="mt-3 w-full rounded-2xl border border-amber-100/35 bg-[#0e1324] px-3 py-2 text-sm text-amber-50 outline-none placeholder:text-amber-100/45 focus:border-cyan-200"
+                  className="mt-3 w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                   onChange={(event) => setCharacterQuery(event.target.value)}
                   placeholder="Search characters"
                   value={characterQuery}
                 />
                 <div className="themed-scrollbar mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pb-1 pr-1">
                   {filteredCharacters.map((entry) => (
-                    <div className="rounded-xl border border-cyan-100/25 bg-[#1a2140]/85 p-3" key={entry.id}>
+                    <div className="rounded-xl border border-border bg-surface-2 p-3" key={entry.id}>
                       {editingCharacterId === entry.id ? (
-                        <div className="space-y-2">
+                        <div className="space-y-2 animate-expand-in">
                           <input
-                            className="w-full rounded-xl border border-amber-100/35 bg-[#0e1324] px-2 py-1 text-sm text-amber-50 outline-none focus:border-cyan-200"
+                            className="w-full rounded-xl border border-border bg-surface-2 px-2 py-1 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingCharacter((prev) => ({ ...prev, name: event.target.value }))}
                             value={editingCharacter.name}
                           />
                           <input
-                            className="w-full rounded-xl border border-amber-100/35 bg-[#0e1324] px-2 py-1 text-sm text-amber-50 outline-none focus:border-cyan-200"
+                            className="w-full rounded-xl border border-border bg-surface-2 px-2 py-1 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingCharacter((prev) => ({ ...prev, role: event.target.value }))}
                             value={editingCharacter.role}
                           />
                           <input
-                            className="w-full rounded-xl border border-amber-100/35 bg-[#0e1324] px-2 py-1 text-sm text-amber-50 outline-none focus:border-cyan-200"
+                            className="w-full rounded-xl border border-border bg-surface-2 px-2 py-1 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingCharacter((prev) => ({ ...prev, traits: event.target.value }))}
                             value={editingCharacter.traits}
                           />
                           <div className="flex gap-2">
                             <button
-                              className="rounded-xl border border-cyan-100/40 px-2 py-1 text-xs text-cyan-100"
+                              className="rounded-xl border border-accent-border px-2 py-1 text-xs text-accent"
                               onClick={saveEditCharacter}
                               type="button"
                             >
                               Save
                             </button>
                             <button
-                              className="rounded-xl border border-slate-300/40 px-2 py-1 text-xs text-slate-200"
+                              className="rounded-xl border border-border px-2 py-1 text-xs text-fg-muted"
                               onClick={() => setEditingCharacterId(null)}
                               type="button"
                             >
@@ -416,50 +424,50 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                           <div className="flex items-start justify-between gap-2">
                             <p className="font-semibold">{entry.name}</p>
                             <button
-                              className="rounded-xl border border-cyan-100/40 px-2 py-1 text-[10px] uppercase tracking-wide text-cyan-100"
+                              className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
                               onClick={() => startEditCharacter(entry.id)}
                               type="button"
                             >
                               Edit
                             </button>
                           </div>
-                          <p className="text-xs text-amber-100/80 font-tech">{entry.role || "No role"}</p>
-                          <p className="text-xs text-amber-100/80 font-tech">{entry.traits || "No traits"}</p>
+                          <p className="text-xs text-fg-muted font-tech">{entry.role || "No role"}</p>
+                          <p className="text-xs text-fg-muted font-tech">{entry.traits || "No traits"}</p>
                         </>
                       )}
                     </div>
                   ))}
-                  {!characters.length ? <p className="text-sm text-amber-100/75 font-tech">No characters yet.</p> : null}
+                  {!characters.length ? <p className="text-sm text-fg-muted font-tech">No characters yet.</p> : null}
                   {characters.length && !filteredCharacters.length ? (
-                    <p className="text-sm text-amber-100/75 font-tech">No characters match your search.</p>
+                    <p className="text-sm text-fg-muted font-tech">No characters match your search.</p>
                   ) : null}
                 </div>
               </article>
 
-              <article className="order-3 min-h-[15rem] rounded-[2rem] border border-amber-100/35 bg-[#111629]/75 p-4 xl:col-span-2">
+              <article className="order-3 min-h-[15rem] rounded-[2rem] border border-border bg-surface p-4 animate-rise-in xl:col-span-2" style={{ animationDelay: "210ms" }}>
                 <h3 className="text-lg font-semibold font-atlas">Notes</h3>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {notes.map((entry) => (
-                    <div className="rounded-xl border border-cyan-100/25 bg-[#1a2140]/85 p-3" key={entry.id}>
+                    <div className="rounded-xl border border-border bg-surface-2 p-3" key={entry.id}>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs text-cyan-100/80 font-tech">{formatDateLabel(entry.date)}</p>
+                        <p className="text-xs text-accent font-tech">{formatDateLabel(entry.date)}</p>
                         <div className="flex items-center gap-1">
                           <button
-                            className="rounded-xl border border-cyan-100/40 px-2 py-1 text-[10px] uppercase tracking-wide text-cyan-100"
+                            className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
                             onClick={() => startEditNote(entry.id)}
                             type="button"
                           >
                             Edit
                           </button>
                           <button
-                            className="rounded-xl border border-cyan-100/40 px-2 py-1 text-[10px] uppercase tracking-wide text-cyan-100"
+                            className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
                             onClick={() => toggleNotePin(entry.id)}
                             type="button"
                           >
                             {entry.pinned ? "Unpin" : "Pin"}
                           </button>
                           <button
-                            className="rounded-xl border border-rose-200/50 px-2 py-1 text-[10px] uppercase tracking-wide text-rose-200"
+                            className="rounded-xl border border-danger px-2 py-1 text-[10px] uppercase tracking-wide text-danger"
                             onClick={() => onDeleteNote(entry.id)}
                             type="button"
                           >
@@ -468,27 +476,27 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                         </div>
                       </div>
                       {entry.pinned ? (
-                        <p className="mt-1 inline-block rounded-full border border-amber-100/35 bg-amber-100/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-100">
+                        <p className="mt-1 inline-block rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent animate-expand-in">
                           Pinned
                         </p>
                       ) : null}
                       {editingNoteId === entry.id ? (
-                        <div className="mt-2 space-y-2">
+                        <div className="mt-2 space-y-2 animate-expand-in">
                           <textarea
-                            className="min-h-20 w-full resize-y rounded-xl border border-amber-100/35 bg-[#0e1324] px-2 py-2 text-sm text-amber-50 outline-none focus:border-cyan-200"
+                            className="min-h-20 w-full resize-y rounded-xl border border-border bg-surface-2 px-2 py-2 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingNoteContent(event.target.value)}
                             value={editingNoteContent}
                           />
                           <div className="flex gap-2">
                             <button
-                              className="rounded-xl border border-cyan-100/40 px-2 py-1 text-xs text-cyan-100"
+                              className="rounded-xl border border-accent-border px-2 py-1 text-xs text-accent"
                               onClick={saveEditNote}
                               type="button"
                             >
                               Save
                             </button>
                             <button
-                              className="rounded-xl border border-slate-300/40 px-2 py-1 text-xs text-slate-200"
+                              className="rounded-xl border border-border px-2 py-1 text-xs text-fg-muted"
                               onClick={() => {
                                 setEditingNoteId(null);
                                 setEditingNoteContent("");
@@ -500,7 +508,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                           </div>
                         </div>
                       ) : (
-                        <p className="mt-2 text-sm text-amber-100/90 font-tech">{entry.content}</p>
+                        <p className="mt-2 text-sm text-fg font-tech">{entry.content}</p>
                       )}
                       {entry.screenshotDataUrl ? (
                         <Image
@@ -514,7 +522,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                       ) : null}
                     </div>
                   ))}
-                  {!notes.length ? <p className="text-sm text-amber-100/75 font-tech">No notes yet.</p> : null}
+                  {!notes.length ? <p className="text-sm text-fg-muted font-tech">No notes yet.</p> : null}
                 </div>
               </article>
             </div>
