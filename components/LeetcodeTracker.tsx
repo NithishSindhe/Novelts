@@ -17,6 +17,8 @@ export function LeetcodeTracker() {
     isSolved,
     getSolvedAt,
     toggle,
+    recordAttempt,
+    getAttempts,
     solvedCount,
     totalCount,
     patternProgress,
@@ -125,7 +127,7 @@ export function LeetcodeTracker() {
               const cardTooltip =
                 progress.solved > 0
                   ? `${progress.solved}/${progress.total} solved${
-                      lastSolvedAt ? ` · last solved ${formatSolvedAt(lastSolvedAt)}` : ""
+                      lastSolvedAt ? ` · last solved ${formatTimestamp(lastSolvedAt)}` : ""
                     }`
                   : "No problems solved yet";
 
@@ -215,6 +217,8 @@ export function LeetcodeTracker() {
           initialShowPatternNote={openPatternNoteInitially}
           isSolved={isSolved}
           getSolvedAt={getSolvedAt}
+          getAttempts={getAttempts}
+          recordAttempt={recordAttempt}
           onClose={closePattern}
           onToggleHideCompleted={() => setHideCompleted((value) => !value)}
           pattern={patternToRender}
@@ -228,7 +232,7 @@ export function LeetcodeTracker() {
   );
 }
 
-function formatSolvedAt(iso: string): string {
+function formatTimestamp(iso: string): string {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
@@ -268,6 +272,8 @@ interface PatternModalProps {
   isSolved: (key: string) => boolean;
   getSolvedAt: (key: string) => string;
   toggle: (key: string) => void;
+  getAttempts: (key: string) => string[];
+  recordAttempt: (key: string) => void;
   getProblemNote: (key: string) => string;
   setProblemNote: (key: string, note: string) => void;
   getPatternNote: (patternId: number) => string;
@@ -285,6 +291,8 @@ function PatternModal({
   isSolved,
   getSolvedAt,
   toggle,
+  getAttempts,
+  recordAttempt,
   getProblemNote,
   setProblemNote,
   getPatternNote,
@@ -298,6 +306,7 @@ function PatternModal({
   const [showPatternNote, setShowPatternNote] = useState(
     () => initialShowPatternNote || Boolean(getPatternNote(pattern.id).trim())
   );
+  const [confirmAttemptKey, setConfirmAttemptKey] = useState<string | null>(null);
 
   const visibleProblems = hideCompleted
     ? pattern.problems.filter((problem) => !isSolved(problem.key))
@@ -400,9 +409,12 @@ function PatternModal({
           ) : (
             visibleProblems.map((problem) => {
               const solved = isSolved(problem.key);
-              const solvedLabel = solved ? formatSolvedAt(getSolvedAt(problem.key)) : "";
+              const solvedLabel = solved ? formatTimestamp(getSolvedAt(problem.key)) : "";
               const hasNote = Boolean(getProblemNote(problem.key).trim());
               const noteOpen = Boolean(openNotes[problem.key]);
+              const attempts = getAttempts(problem.key);
+              const attemptCount = attempts.length;
+              const lastAttemptLabel = attemptCount > 0 ? formatTimestamp(attempts[attempts.length - 1]) : "";
               return (
                 <li className="px-5 py-2.5" key={problem.key}>
                   <div className="flex items-center gap-3">
@@ -424,6 +436,19 @@ function PatternModal({
                       {problem.title}
                     </a>
                     <button
+                      aria-label={`Record an attempt for ${problem.title}`}
+                      className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide transition ${
+                        attemptCount > 0
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          : "border-border text-fg-muted hover:bg-surface-2"
+                      }`}
+                      onClick={() => setConfirmAttemptKey(problem.key)}
+                      title="Record an attempt"
+                      type="button"
+                    >
+                      {attemptCount > 0 ? `Attempt · ${attemptCount}` : "Attempt"}
+                    </button>
+                    <button
                       aria-label={`${hasNote ? "Edit" : "Add"} note for ${problem.title}`}
                       className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide transition ${
                         hasNote || noteOpen
@@ -442,9 +467,18 @@ function PatternModal({
                     </span>
                   </div>
 
-                  {solved ? (
-                    <p className="mt-1 pl-7 font-tech text-[10px] text-success">
-                      {solvedLabel ? `Solved · ${solvedLabel}` : "Solved"}
+                  {solved || attemptCount > 0 ? (
+                    <p className="mt-1 pl-7 space-y-0.5">
+                      {solved ? (
+                        <span className="block font-tech text-[10px] text-success">
+                          {solvedLabel ? `Solved · ${solvedLabel}` : "Solved"}
+                        </span>
+                      ) : null}
+                      {attemptCount > 0 ? (
+                        <span className="block font-tech text-[10px] text-amber-600 dark:text-amber-400">
+                          {`Attempts: ${attemptCount} · last ${lastAttemptLabel}`}
+                        </span>
+                      ) : null}
                     </p>
                   ) : null}
 
@@ -464,6 +498,44 @@ function PatternModal({
           )}
         </ul>
       </div>
+
+      {confirmAttemptKey ? (
+        <div
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setConfirmAttemptKey(null)}
+          role="dialog"
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-[0_20px_60px_rgba(0,0,0,0.3)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="font-atlas text-base font-semibold text-fg">Record an attempt?</h3>
+            <p className="mt-2 text-sm text-fg-muted">
+              Are you sure you want to record an attempt time? This cannot be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="rounded-2xl border border-border px-3 py-1.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+                onClick={() => setConfirmAttemptKey(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600"
+                onClick={() => {
+                  recordAttempt(confirmAttemptKey);
+                  setConfirmAttemptKey(null);
+                }}
+                type="button"
+              >
+                Record attempt
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -46,6 +46,7 @@ export function useLeetcode() {
         const localState = loadState();
         const hasLocalData =
           Object.keys(localState.solved).length > 0 ||
+          Object.keys(localState.attempts).length > 0 ||
           Object.keys(localState.problemNotes).length > 0 ||
           Object.keys(localState.patternNotes).length > 0;
 
@@ -132,6 +133,19 @@ export function useLeetcode() {
 
   const getSolvedAt = useCallback((key: string) => state.solvedAt[key] ?? "", [state.solvedAt]);
 
+  // Records a new attempt timestamp for a problem. Append-only: existing
+  // attempts are never modified or removed.
+  const recordAttempt = useCallback((key: string) => {
+    setState((current) => {
+      const attempts = { ...current.attempts };
+      const existing = attempts[key] ?? [];
+      attempts[key] = [...existing, new Date().toISOString()];
+      return { ...current, attempts };
+    });
+  }, []);
+
+  const getAttempts = useCallback((key: string) => state.attempts[key] ?? [], [state.attempts]);
+
   const setProblemNote = useCallback((key: string, note: string) => {
     setState((current) => {
       const problemNotes = { ...current.problemNotes };
@@ -180,6 +194,8 @@ export function useLeetcode() {
     isSolved,
     getSolvedAt,
     toggle,
+    recordAttempt,
+    getAttempts,
     solvedCount,
     totalCount: TOTAL_PROBLEMS,
     patternProgress,
