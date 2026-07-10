@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/server/db";
 import { emptyState, normalizeTrackerState } from "@/lib/storage";
-import type { CharacterEntry, CheckInRecord, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
+import type { CharacterEntry, CheckInRecord, CheckInSource, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
 
 async function ensureUser(userId: string): Promise<void> {
   const sql = getDb();
@@ -8,6 +8,38 @@ async function ensureUser(userId: string): Promise<void> {
     insert into public.users (user_id, username)
     values (${userId}, ${userId})
     on conflict (user_id) do nothing
+  `;
+}
+
+// Additive, idempotent check-in: unions the new source into any existing
+// record for that day rather than replacing it. Safe to call from any
+// feature (LeetCode, future features, etc.) without touching the rest of the
+// user's tracker state.
+export async function upsertCheckIn(userId: string, date: string, source: CheckInSource): Promise<void> {
+  const sql = getDb();
+  await ensureUser(userId);
+  await sql`
+    insert into public.check_ins (user_id, date, sources)
+    values (${userId}, ${date}, ${[source]})
+    on conflict (user_id, date) do update
+    set sources = (
+      select array_agg(distinct s)
+      from unnest(public.check_ins.sources || excluded.sources) as s
+    )
+  `;
+}
+
+// Append-only log entry so "what happened on day X" can be answered with a
+// single query regardless of which feature recorded the event.
+export async function logActivityEvent(
+  userId: string,
+  input: { date: string; kind: string; refKey?: string; metadata?: Record<string, unknown> }
+): Promise<void> {
+  const sql = getDb();
+  await ensureUser(userId);
+  await sql`
+    insert into public.activity_events (user_id, date, kind, ref_key, metadata)
+    values (${userId}, ${input.date}, ${input.kind}, ${input.refKey ?? null}, ${JSON.stringify(input.metadata ?? {})})
   `;
 }
 

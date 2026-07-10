@@ -2,6 +2,8 @@
 
 import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { markCheckIn } from "@/lib/checkinClient";
+import { todayDateId } from "@/lib/date";
 import { LEETCODE_PATTERNS, TOTAL_PROBLEMS } from "@/lib/leetcodeData";
 import {
   clearLocalState,
@@ -14,6 +16,7 @@ import {
 } from "@/lib/leetcodeStorage";
 
 type SyncMode = "local" | "cloud";
+export type SyncStatus = "local" | "syncing" | "synced" | "error";
 
 export interface PatternProgress {
   solved: number;
@@ -29,7 +32,25 @@ export function useLeetcode() {
   const [state, setState] = useState<LeetcodeState>(emptyState);
   const [ready, setReady] = useState(false);
   const [syncMode, setSyncMode] = useState<SyncMode>("local");
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("local");
   const cloudUserIdRef = useRef<string | null>(null);
+  // Avoid spamming /api/checkin with repeat calls for the same day/kind
+  // within a session; the endpoint itself is idempotent regardless.
+  const checkedInRef = useRef<Set<string>>(new Set());
+
+  const isSignedIn = Boolean(userId);
+
+  const checkInFromLeetcode = useCallback(
+    (kind: "leetcode_solved" | "leetcode_attempt", key: string) => {
+      if (syncMode !== "cloud" || !cloudUserIdRef.current) return;
+      const date = todayDateId();
+      const dedupeKey = `${date}:${kind}:${key}`;
+      if (checkedInRef.current.has(dedupeKey)) return;
+      checkedInRef.current.add(dedupeKey);
+      void markCheckIn({ date, source: "leetcode", kind, refKey: key });
+    },
+    [syncMode]
+  );
 
   useEffect(() => {
     if (!authLoaded) return;
@@ -41,6 +62,7 @@ export function useLeetcode() {
 
       if (userId) {
         setSyncMode("cloud");
+        setSyncStatus("syncing");
         cloudUserIdRef.current = userId;
 
         const localState = loadState();
@@ -67,15 +89,23 @@ export function useLeetcode() {
                   body: JSON.stringify({ state: merged })
                 });
                 clearLocalState();
+                if (!cancelled) setSyncStatus("synced");
               } catch {
                 // Keep local data; the change effect will retry the sync.
+                if (!cancelled) setSyncStatus("error");
               }
+            } else if (!cancelled) {
+              setSyncStatus("synced");
             }
           } else if (!cancelled) {
             setState(emptyState);
+            setSyncStatus("error");
           }
         } catch {
-          if (!cancelled) setState(emptyState);
+          if (!cancelled) {
+            setState(emptyState);
+            setSyncStatus("error");
+          }
         }
 
         if (!cancelled) setReady(true);
@@ -85,6 +115,7 @@ export function useLeetcode() {
       if (cancelled) return;
 
       setSyncMode("local");
+      setSyncStatus("local");
       cloudUserIdRef.current = null;
       setState(loadState());
       setReady(true);
@@ -101,33 +132,47 @@ export function useLeetcode() {
     if (!ready) return;
 
     if (syncMode === "cloud" && cloudUserIdRef.current) {
+      setSyncStatus("syncing");
       void fetch("/api/leetcode", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ state })
-      }).catch(() => {
-        // Non-fatal; the next change will retry.
-      });
+      })
+        .then((response) => {
+          setSyncStatus(response.ok ? "synced" : "error");
+        })
+        .catch(() => {
+          // Non-fatal; the next change will retry.
+          setSyncStatus("error");
+        });
       return;
     }
 
     saveState(state);
   }, [state, ready, syncMode]);
 
-  const toggle = useCallback((key: string) => {
-    setState((current) => {
-      const solved = { ...current.solved };
-      const solvedAt = { ...current.solvedAt };
-      if (solved[key]) {
-        delete solved[key];
-        delete solvedAt[key];
-      } else {
-        solved[key] = true;
-        solvedAt[key] = new Date().toISOString();
+  const toggle = useCallback(
+    (key: string) => {
+      let becameSolved = false;
+      setState((current) => {
+        const solved = { ...current.solved };
+        const solvedAt = { ...current.solvedAt };
+        if (solved[key]) {
+          delete solved[key];
+          delete solvedAt[key];
+        } else {
+          solved[key] = true;
+          solvedAt[key] = new Date().toISOString();
+          becameSolved = true;
+        }
+        return { ...current, solved, solvedAt };
+      });
+      if (becameSolved) {
+        checkInFromLeetcode("leetcode_solved", key);
       }
-      return { ...current, solved, solvedAt };
-    });
-  }, []);
+    },
+    [checkInFromLeetcode]
+  );
 
   const isSolved = useCallback((key: string) => Boolean(state.solved[key]), [state.solved]);
 
@@ -135,14 +180,18 @@ export function useLeetcode() {
 
   // Records a new attempt timestamp for a problem. Append-only: existing
   // attempts are never modified or removed.
-  const recordAttempt = useCallback((key: string) => {
-    setState((current) => {
-      const attempts = { ...current.attempts };
-      const existing = attempts[key] ?? [];
-      attempts[key] = [...existing, new Date().toISOString()];
-      return { ...current, attempts };
-    });
-  }, []);
+  const recordAttempt = useCallback(
+    (key: string) => {
+      setState((current) => {
+        const attempts = { ...current.attempts };
+        const existing = attempts[key] ?? [];
+        attempts[key] = [...existing, new Date().toISOString()];
+        return { ...current, attempts };
+      });
+      checkInFromLeetcode("leetcode_attempt", key);
+    },
+    [checkInFromLeetcode]
+  );
 
   const getAttempts = useCallback((key: string) => state.attempts[key] ?? [], [state.attempts]);
 
@@ -202,6 +251,8 @@ export function useLeetcode() {
     getProblemNote,
     setProblemNote,
     getPatternNote,
-    setPatternNote
+    setPatternNote,
+    syncStatus,
+    isSignedIn
   };
 }

@@ -37,9 +37,12 @@ Optional (local dev only):
 
 ## Database setup (Neon)
 1. Create a Neon project and copy its connection string into `.env.local` as `DATABASE_URL`.
-2. Apply the schema:
+2. Apply the schema (run each migration in order):
    ```bash
    node scripts/apply-migration.cjs db/migrations/0001_init.sql
+   node scripts/apply-migration.cjs db/migrations/0002_leetcode_solved_at.sql
+   node scripts/apply-migration.cjs db/migrations/0003_leetcode_attempts.sql
+   node scripts/apply-migration.cjs db/migrations/0004_activity_events.sql
    ```
    (Uses the Neon serverless driver over HTTPS, so it works even where direct
    TCP :5432 is blocked. `psql "$DATABASE_URL" -f db/migrations/0001_init.sql`

@@ -1,8 +1,9 @@
 "use client";
 
+import { SignInButton } from "@clerk/nextjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LEETCODE_PATTERNS, TOTAL_PROBLEMS, type Difficulty, type LeetPattern } from "@/lib/leetcodeData";
-import { useLeetcode } from "@/lib/useLeetcode";
+import { useLeetcode, type SyncStatus } from "@/lib/useLeetcode";
 import { useMountTransition, type TransitionStatus } from "@/lib/useMountTransition";
 
 const DIFFICULTY_STYLES: Record<Difficulty, string> = {
@@ -25,7 +26,9 @@ export function LeetcodeTracker() {
     getProblemNote,
     setProblemNote,
     getPatternNote,
-    setPatternNote
+    setPatternNote,
+    syncStatus,
+    isSignedIn
   } = useLeetcode();
   const [hideCompleted, setHideCompleted] = useState(false);
   const [activePatternId, setActivePatternId] = useState<number | null>(null);
@@ -87,8 +90,9 @@ export function LeetcodeTracker() {
         <header className="grid gap-4 rounded-[2rem] border border-border bg-surface p-6 shadow-[0_15px_45px_rgba(0,0,0,0.12)]">
           <div>
             <h1 className="text-3xl font-bold sm:text-4xl font-atlas">LeetCode Patterns</h1>
-            <p className="mt-1 text-sm text-fg-muted">
-              {LEETCODE_PATTERNS.length} patterns · {TOTAL_PROBLEMS} problems · progress stored locally
+            <p className="mt-1 flex items-center gap-1.5 text-sm text-fg-muted">
+              {LEETCODE_PATTERNS.length} patterns · {TOTAL_PROBLEMS} problems ·{" "}
+              <SyncIndicator status={syncStatus} />
             </p>
           </div>
 
@@ -106,6 +110,19 @@ export function LeetcodeTracker() {
               />
             </div>
           </div>
+
+          {!isSignedIn ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent-border bg-accent-soft px-4 py-3 text-xs text-fg-muted">
+              <span>
+                Sign in to track daily check-ins and sync your notes and progress to the cloud.
+              </span>
+              <SignInButton mode="modal">
+                <button className="shrink-0 rounded-2xl border border-accent-border bg-accent px-3 py-1.5 text-xs font-semibold text-accent-fg transition hover:opacity-90">
+                  Sign in
+                </button>
+              </SignInButton>
+            </div>
+          ) : null}
         </header>
 
         {!ready ? (
@@ -229,6 +246,25 @@ export function LeetcodeTracker() {
         />
       ) : null}
     </main>
+  );
+}
+
+const SYNC_STATUS_META: Record<SyncStatus, { label: string; dotClass: string; pulse?: boolean }> = {
+  local: { label: "stored locally", dotClass: "bg-fg-subtle" },
+  syncing: { label: "syncing…", dotClass: "bg-amber-500", pulse: true },
+  synced: { label: "updates synced to cloud", dotClass: "bg-emerald-500" },
+  error: { label: "sync error · updates saved locally", dotClass: "bg-rose-500" }
+};
+
+function SyncIndicator({ status }: { status: SyncStatus }) {
+  const meta = SYNC_STATUS_META[status];
+  return (
+    <span className="inline-flex items-center gap-1.5" title={`Progress ${meta.label}`}>
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${meta.dotClass} ${meta.pulse ? "animate-pulse" : ""}`}
+      />
+      {meta.label}
+    </span>
   );
 }
 

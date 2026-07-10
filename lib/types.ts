@@ -1,4 +1,4 @@
-export type CheckInSource = "manual" | "note";
+export type CheckInSource = "manual" | "note" | "leetcode";
 
 export interface Novel {
   id: string;
