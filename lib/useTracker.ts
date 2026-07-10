@@ -161,6 +161,41 @@ export function useTracker() {
     };
   }, [authLoaded, userId, showMessage]);
 
+  // Refresh cloud check-ins when the user returns to this tab/window. This
+  // keeps the streak in sync with check-ins recorded by other features (e.g.
+  // LeetCode attempts/solves) made on a different route, without a full reload.
+  useEffect(() => {
+    if (!ready || syncMode !== "cloud" || !cloudUserId) return;
+
+    let cancelled = false;
+
+    async function refreshCheckIns() {
+      try {
+        const response = await fetch("/api/tracker", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { state?: unknown };
+        const cloudState = normalizeTrackerState(payload.state);
+        if (cancelled) return;
+        setState((current) => ({ ...current, checkIns: cloudState.checkIns }));
+      } catch {
+        // Non-fatal; the streak simply won't refresh until next opportunity.
+      }
+    }
+
+    function onVisible() {
+      if (document.visibilityState === "visible") void refreshCheckIns();
+    }
+
+    window.addEventListener("focus", refreshCheckIns);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", refreshCheckIns);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [ready, syncMode, cloudUserId]);
+
   useEffect(() => {
     if (!ready) return;
 

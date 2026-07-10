@@ -119,11 +119,14 @@ export async function writeTrackerState(userId: string, input: unknown): Promise
   // Replace-all for this user, transactionally: clear then re-insert.
   // Deleting the novels cascades to notes/words/characters, so we clear the
   // leaf tables explicitly first only for rows that reference no novel.
+  // Note: check_ins are intentionally NOT deleted here. They are synced
+  // additively (upsert below) so that check-ins recorded by other features
+  // (e.g. LeetCode via /api/checkin) are not wiped by the tracker's
+  // whole-state replace.
   const statements = [
     sql`delete from public.notes where user_id = ${userId}`,
     sql`delete from public.words where user_id = ${userId}`,
     sql`delete from public.characters where user_id = ${userId}`,
-    sql`delete from public.check_ins where user_id = ${userId}`,
     sql`delete from public.novels where user_id = ${userId}`
   ];
 
@@ -159,6 +162,11 @@ export async function writeTrackerState(userId: string, input: unknown): Promise
     statements.push(sql`
       insert into public.check_ins (user_id, date, sources, created_at)
       values (${userId}, ${record.date}, ${record.sources ?? []}, ${createdAt(record.createdAt)})
+      on conflict (user_id, date) do update
+      set sources = (
+        select array_agg(distinct s)
+        from unnest(public.check_ins.sources || excluded.sources) as s
+      )
     `);
   }
 

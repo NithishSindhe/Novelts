@@ -238,6 +238,21 @@ export function useLeetcode() {
     return map;
   }, [state.solved]);
 
+  // Per-pattern count of problems that have at least one recorded attempt but
+  // are not yet solved ("attempting").
+  const patternAttempting = useMemo(() => {
+    const map: Record<number, number> = {};
+    for (const pattern of LEETCODE_PATTERNS) {
+      const count = pattern.problems.reduce((sum, problem) => {
+        const attempts = state.attempts[problem.key];
+        const isAttempting = Boolean(attempts && attempts.length > 0) && !state.solved[problem.key];
+        return sum + (isAttempting ? 1 : 0);
+      }, 0);
+      map[pattern.id] = count;
+    }
+    return map;
+  }, [state.attempts, state.solved]);
+
   return {
     ready,
     isSolved,
@@ -248,6 +263,7 @@ export function useLeetcode() {
     solvedCount,
     totalCount: TOTAL_PROBLEMS,
     patternProgress,
+    patternAttempting,
     getProblemNote,
     setProblemNote,
     getPatternNote,

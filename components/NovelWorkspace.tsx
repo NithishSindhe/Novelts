@@ -445,30 +445,53 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
               </article>
 
               <article className="order-3 min-h-[15rem] rounded-[2rem] border border-border bg-surface p-4 animate-rise-in xl:col-span-2" style={{ animationDelay: "210ms" }}>
-                <h3 className="text-lg font-semibold font-atlas">Notes</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-lg font-semibold font-atlas">Notes</h3>
+                  <Link
+                    className="rounded-2xl border border-accent-border bg-accent-soft px-3 py-1 text-xs text-accent transition hover:bg-accent hover:text-accent-fg"
+                    href={`/novels/${novelId}/notes`}
+                  >
+                    Open reader
+                  </Link>
+                </div>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {notes.map((entry) => (
-                    <div className="rounded-xl border border-border bg-surface-2 p-3" key={entry.id}>
+                    <Link
+                      className="block rounded-xl border border-border bg-surface-2 p-3 transition hover:border-accent-border"
+                      href={`/novels/${novelId}/notes?note=${entry.id}`}
+                      key={entry.id}>
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs text-accent font-tech">{formatDateLabel(entry.date)}</p>
                         <div className="flex items-center gap-1">
                           <button
                             className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
-                            onClick={() => startEditNote(entry.id)}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              startEditNote(entry.id);
+                            }}
                             type="button"
                           >
                             Edit
                           </button>
                           <button
                             className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
-                            onClick={() => toggleNotePin(entry.id)}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              toggleNotePin(entry.id);
+                            }}
                             type="button"
                           >
                             {entry.pinned ? "Unpin" : "Pin"}
                           </button>
                           <button
                             className="rounded-xl border border-danger px-2 py-1 text-[10px] uppercase tracking-wide text-danger"
-                            onClick={() => onDeleteNote(entry.id)}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onDeleteNote(entry.id);
+                            }}
                             type="button"
                           >
                             Delete
@@ -481,7 +504,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                         </p>
                       ) : null}
                       {editingNoteId === entry.id ? (
-                        <div className="mt-2 space-y-2 animate-expand-in">
+                        <div className="mt-2 space-y-2 animate-expand-in" onClick={(event) => event.preventDefault()}>
                           <textarea
                             className="min-h-20 w-full resize-y rounded-xl border border-border bg-surface-2 px-2 py-2 text-sm text-fg outline-none focus:border-accent"
                             onChange={(event) => setEditingNoteContent(event.target.value)}
@@ -490,14 +513,20 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                           <div className="flex gap-2">
                             <button
                               className="rounded-xl border border-accent-border px-2 py-1 text-xs text-accent"
-                              onClick={saveEditNote}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                saveEditNote();
+                              }}
                               type="button"
                             >
                               Save
                             </button>
                             <button
                               className="rounded-xl border border-border px-2 py-1 text-xs text-fg-muted"
-                              onClick={() => {
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
                                 setEditingNoteId(null);
                                 setEditingNoteContent("");
                               }}
@@ -520,7 +549,7 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                           width={560}
                         />
                       ) : null}
-                    </div>
+                    </Link>
                   ))}
                   {!notes.length ? <p className="text-sm text-fg-muted font-tech">No notes yet.</p> : null}
                 </div>

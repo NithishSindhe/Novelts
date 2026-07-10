@@ -9,8 +9,8 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "sw
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Novelts",
-  description: "Novelts tracks words, characters, notes, and check-ins with local-first + cloud sync."
+  title: "SolsticeBase",
+  description: "Track your novels and your LeetCode grind in one place — local-first, cloud-synced."
 };
 
 export const viewport: Viewport = {
