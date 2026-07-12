@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { buildActivityFeed, formatRelativeTime, type ActivityEvent } from "@/lib/activityFeed";
 import { dateIdFromLocal, formatDateLabel, parseDateId } from "@/lib/date";
+import { loadState as loadLeetcodeState } from "@/lib/leetcodeStorage";
 import { useTracker } from "@/lib/useTracker";
 import { useMountTransition } from "@/lib/useMountTransition";
 
@@ -37,11 +39,12 @@ function buildMonthChunks(count: number) {
 }
 
 export function HomeDashboard() {
-  const { ready, state, streak, validDates, message, messageKind, addNovel, checkIn, softDeleteNovel } = useTracker();
+  const { ready, state, streak, message, messageKind, syncMode, cloudUserId, addNovel, softDeleteNovel } = useTracker();
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [query, setQuery] = useState("");
   const [hoverInfo, setHoverInfo] = useState<{ label: string; x: number; y: number } | null>(null);
+  const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
 
   const monthChunks = useMemo(() => buildMonthChunks(MONTH_CHUNKS), []);
 
@@ -72,7 +75,31 @@ export function HomeDashboard() {
     });
   }, [activeNovels, query]);
 
-  const recentWords = useMemo(() => activeWords.slice(0, 12), [activeWords]);
+  // Recent activity feed. Signed-in users read the dedicated /api/activity
+  // endpoint (which derives the feed from the full persisted state, so nothing
+  // is missed). Anonymous/local users build the same feed client-side from
+  // local storage via the shared builder.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+
+    if (syncMode === "cloud" && cloudUserId) {
+      fetch("/api/activity", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error("bad response"))))
+        .then((payload: { events?: ActivityEvent[] }) => {
+          if (!cancelled) setActivityEvents(payload.events ?? []);
+        })
+        .catch(() => {
+          /* Non-fatal; the feed simply stays as-is until the next refresh. */
+        });
+    } else {
+      setActivityEvents(buildActivityFeed(state, loadLeetcodeState()));
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, syncMode, cloudUserId, state]);
 
   const { shouldRender: toastMounted, status: toastStatus } = useMountTransition(Boolean(message), 200);
   const lastToastRef = useRef({ text: message, kind: messageKind });
@@ -95,33 +122,8 @@ export function HomeDashboard() {
   return (
     <main className="theme-five flex-1 bg-background px-4 safe-bottom-offset pt-8 text-fg">
       <div className="mx-auto max-w-[1400px] space-y-6">
-        <header className="grid gap-4 rounded-[2rem] border border-border bg-surface p-6 shadow-[0_15px_45px_rgba(0,0,0,0.12)] animate-rise-in md:grid-cols-[1.15fr_1fr] md:items-end">
-          <div>
-            <h1 className="text-3xl font-bold sm:text-4xl font-atlas">Novelts Home</h1>
-          </div>
-
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-fg-subtle font-tech">Manual check-in</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {[...validDates].reverse().map((date) => {
-                const active = Boolean(state.checkIns[date]);
-                return (
-                  <button
-                    className={`rounded-2xl px-4 py-2 text-sm transition ${
-                      active
-                        ? "bg-accent text-accent-fg"
-                        : "border border-border bg-surface-2 text-fg-muted hover:text-fg"
-                    }`}
-                    key={date}
-                    onClick={() => checkIn(date, "manual")}
-                    type="button"
-                  >
-                    {formatDateLabel(date)}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <header className="rounded-[2rem] border border-border bg-surface p-6 shadow-[0_15px_45px_rgba(0,0,0,0.12)] animate-rise-in">
+          <h1 className="text-3xl font-bold sm:text-4xl font-atlas">Novelts Home</h1>
         </header>
 
         {toastMounted ? (
@@ -144,8 +146,56 @@ export function HomeDashboard() {
           <section className="rounded-[2rem] border border-border bg-surface p-6">Loading local data...</section>
         ) : (
           <>
-            <section className="grid gap-4 xl:grid-cols-2 animate-rise-in" style={{ animationDelay: "70ms" }}>
-              <section className="grid grid-cols-2 gap-3 xl:col-start-1 xl:row-start-1">
+            <section
+              className="rounded-[2rem] border border-border bg-surface p-5 animate-rise-in"
+              style={{ animationDelay: "70ms" }}
+            >
+              <h2 className="text-xl font-semibold font-atlas">Check-ins</h2>
+              <div className="mt-3 flex flex-wrap gap-4">
+                {monthChunks.map((chunk) => (
+                  <div key={chunk.key}>
+                    <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-fg-subtle font-tech">{chunk.label}</p>
+                    <div className="inline-grid grid-flow-col auto-cols-[11px] grid-rows-7 gap-1">
+                      {chunk.cells.map((date, idx) => {
+                        if (!date) {
+                          return <div className="h-[11px] w-[11px] rounded-[3px] bg-transparent" key={`${chunk.key}-blank-${idx}`} />;
+                        }
+
+                        const record = state.checkIns[date];
+                        const level = record ? (record.sources.length > 1 ? 2 : 1) : 0;
+                        const cellColor =
+                          level === 2
+                            ? "bg-accent"
+                            : level === 1
+                            ? "bg-accent-soft"
+                            : "bg-surface-2";
+
+                        return (
+                          <div
+                            className={`h-[11px] w-[11px] rounded-[3px] ${cellColor}`}
+                            key={date}
+                            onMouseEnter={(event) => {
+                              setHoverInfo({
+                                label: formatDateLabel(date),
+                                x: event.clientX,
+                                y: event.clientY
+                              });
+                            }}
+                            onMouseLeave={() => setHoverInfo(null)}
+                            onMouseMove={(event) => {
+                              setHoverInfo((prev) => (prev ? { ...prev, x: event.clientX, y: event.clientY } : prev));
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="grid gap-4 xl:grid-cols-2 animate-rise-in" style={{ animationDelay: "110ms" }}>
+              <section className="grid grid-cols-2 gap-3">
                 <article className="rounded-[1.5rem] border border-border bg-surface p-4">
                   <p className="text-xs uppercase tracking-[0.2em] text-fg-subtle font-tech">Current streak</p>
                   <p className="mt-2 text-3xl font-bold font-atlas">{streak.current}</p>
@@ -164,7 +214,7 @@ export function HomeDashboard() {
                 </article>
               </section>
 
-              <section className="rounded-[2rem] border border-border bg-surface p-5 xl:col-start-2 xl:row-start-1">
+              <section className="rounded-[2rem] border border-border bg-surface p-5">
                 <h2 className="text-xl font-semibold font-atlas">Add novel</h2>
                 <form className="mt-3 space-y-2" onSubmit={onAddNovel}>
                   <input
@@ -188,122 +238,81 @@ export function HomeDashboard() {
                   </button>
                 </form>
               </section>
-
-              <section className="rounded-[2rem] border border-border bg-surface p-5 xl:col-start-1 xl:row-start-2">
-                <h2 className="text-xl font-semibold font-atlas">Check-ins</h2>
-                <div className="mt-3 flex flex-wrap gap-4">
-                  {monthChunks.map((chunk) => (
-                    <div key={chunk.key}>
-                      <p className="mb-2 text-[11px] uppercase tracking-[0.16em] text-fg-subtle font-tech">{chunk.label}</p>
-                      <div className="inline-grid grid-flow-col auto-cols-[11px] grid-rows-7 gap-1">
-                        {chunk.cells.map((date, idx) => {
-                          if (!date) {
-                            return <div className="h-[11px] w-[11px] rounded-[3px] bg-transparent" key={`${chunk.key}-blank-${idx}`} />;
-                          }
-
-                          const record = state.checkIns[date];
-                          const level = record ? (record.sources.length > 1 ? 2 : 1) : 0;
-                          const cellColor =
-                            level === 2
-                              ? "bg-accent"
-                              : level === 1
-                              ? "bg-accent-soft"
-                              : "bg-surface-2";
-
-                          return (
-                            <div
-                              className={`h-[11px] w-[11px] rounded-[3px] ${cellColor}`}
-                              key={date}
-                              onMouseEnter={(event) => {
-                                setHoverInfo({
-                                  label: formatDateLabel(date),
-                                  x: event.clientX,
-                                  y: event.clientY
-                                });
-                              }}
-                              onMouseLeave={() => setHoverInfo(null)}
-                              onMouseMove={(event) => {
-                                setHoverInfo((prev) => (prev ? { ...prev, x: event.clientX, y: event.clientY } : prev));
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-[2rem] border border-border bg-surface p-5 xl:col-start-2 xl:row-start-2">
-                <div className="flex flex-col gap-3">
-                  <h2 className="text-xl font-semibold font-atlas">Novel selection</h2>
-                  <input
-                    className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search by title or author"
-                    value={query}
-                  />
-                </div>
-
-                <div className="themed-scrollbar mt-4 grid max-h-[430px] gap-3 overflow-y-auto pr-1 md:grid-cols-2">
-                  {filteredNovels.map((novel) => {
-                    const noteCount = activeNotes.filter((entry) => entry.novelId === novel.id).length;
-                    const characterCount = activeCharacters.filter((entry) => entry.novelId === novel.id).length;
-                    const wordCount = activeWords.filter((entry) => entry.novelId === novel.id).length;
-                    const workspaceHref = {
-                      pathname: `/novels/${novel.id}`,
-                      query: {
-                        title: novel.title,
-                        author: novel.author
-                      }
-                    };
-
-                    return (
-                      <article className="rounded-2xl border border-border bg-surface-2 p-4" key={novel.id}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <Link className="text-lg font-semibold font-atlas text-fg hover:text-accent" href={workspaceHref}>
-                              {novel.title}
-                            </Link>
-                            <p className="text-xs text-fg-muted font-tech">{novel.author || "Unknown author"}</p>
-                          </div>
-                          <button
-                            className="rounded-xl border border-danger px-2 py-1 text-[10px] uppercase tracking-wide text-danger"
-                            onClick={() => onDeleteNovel(novel.id, novel.title)}
-                            type="button"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                        <p className="mt-3 text-xs text-fg-muted font-tech">
-                          {wordCount} words · {characterCount} characters · {noteCount} notes
-                        </p>
-                        <Link className="mt-2 inline-block text-xs text-accent font-tech" href={workspaceHref}>
-                          Open focused workspace
-                        </Link>
-                      </article>
-                    );
-                  })}
-                  {!filteredNovels.length ? <p className="text-sm text-fg-muted font-tech">No novels match your search.</p> : null}
-                </div>
-              </section>
             </section>
 
             <section className="rounded-[2rem] border border-border bg-surface p-5 animate-rise-in" style={{ animationDelay: "140ms" }}>
-              <h2 className="text-xl font-semibold font-atlas">Recent words</h2>
-              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {recentWords.map((entry) => {
-                  const novel = activeNovels.find((item) => item.id === entry.novelId);
+              <div className="flex flex-col gap-3">
+                <h2 className="text-xl font-semibold font-atlas">Novel selection</h2>
+                <input
+                  className="w-full rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search by title or author"
+                  value={query}
+                />
+              </div>
+
+              <div className="themed-scrollbar mt-4 grid max-h-[430px] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
+                {filteredNovels.map((novel) => {
+                  const noteCount = activeNotes.filter((entry) => entry.novelId === novel.id).length;
+                  const characterCount = activeCharacters.filter((entry) => entry.novelId === novel.id).length;
+                  const wordCount = activeWords.filter((entry) => entry.novelId === novel.id).length;
+                  const workspaceHref = {
+                    pathname: `/novels/${novel.id}`,
+                    query: {
+                      title: novel.title,
+                      author: novel.author
+                    }
+                  };
+
                   return (
-                    <article className="rounded-xl border border-border bg-surface-2 p-3" key={entry.id}>
-                      <p className="font-semibold">{entry.word}</p>
-                      <p className="text-xs text-fg-muted font-tech">{entry.meaning || "No meaning yet"}</p>
-                      <p className="text-xs text-accent font-tech">{novel?.title ?? "Unlinked"}</p>
+                    <article className="rounded-2xl border border-border bg-surface-2 p-4" key={novel.id}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <Link className="text-lg font-semibold font-atlas text-fg hover:text-accent" href={workspaceHref}>
+                            {novel.title}
+                          </Link>
+                          <p className="text-xs text-fg-muted font-tech">{novel.author || "Unknown author"}</p>
+                        </div>
+                        <button
+                          className="rounded-xl border border-danger px-2 py-1 text-[10px] uppercase tracking-wide text-danger"
+                          onClick={() => onDeleteNovel(novel.id, novel.title)}
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                      <p className="mt-3 text-xs text-fg-muted font-tech">
+                        {wordCount} words · {characterCount} characters · {noteCount} notes
+                      </p>
+                      <Link className="mt-2 inline-block text-xs text-accent font-tech" href={workspaceHref}>
+                        Open focused workspace
+                      </Link>
                     </article>
                   );
                 })}
-                {!recentWords.length ? <p className="text-sm text-fg-muted font-tech">No words yet.</p> : null}
+                {!filteredNovels.length ? <p className="text-sm text-fg-muted font-tech">No novels match your search.</p> : null}
               </div>
+            </section>
+
+            <section className="rounded-[2rem] border border-border bg-surface p-5 animate-rise-in" style={{ animationDelay: "170ms" }}>
+              <h2 className="text-xl font-semibold font-atlas">Recent activity</h2>
+              <ul className="mt-3 divide-y divide-border">
+                {activityEvents.map((event) => (
+                  <li key={event.id}>
+                    <Link
+                      className="group flex items-start gap-3 py-2.5 transition hover:bg-surface-2 -mx-2 rounded-xl px-2"
+                      href={event.href}
+                    >
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" aria-hidden />
+                      <span className="min-w-0 flex-1 text-sm text-fg group-hover:text-accent">{event.text}</span>
+                      <time className="shrink-0 text-xs text-fg-subtle font-tech" dateTime={event.timestamp}>
+                        {formatRelativeTime(event.timestamp)}
+                      </time>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {!activityEvents.length ? <p className="mt-3 text-sm text-fg-muted font-tech">No recent activity yet.</p> : null}
             </section>
           </>
         )}

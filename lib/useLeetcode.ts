@@ -199,28 +199,34 @@ export function useLeetcode() {
   const setProblemNote = useCallback((key: string, note: string) => {
     setState((current) => {
       const problemNotes = { ...current.problemNotes };
+      const problemNotesUpdatedAt = { ...current.problemNotesUpdatedAt };
       const clamped = clampToLimit(note, LEETCODE_PROBLEM_NOTE_MAX);
       const trimmed = clamped.trim();
       if (trimmed) {
         problemNotes[key] = clamped;
+        problemNotesUpdatedAt[key] = new Date().toISOString();
       } else {
         delete problemNotes[key];
+        delete problemNotesUpdatedAt[key];
       }
-      return { ...current, problemNotes };
+      return { ...current, problemNotes, problemNotesUpdatedAt };
     });
   }, []);
 
   const setPatternNote = useCallback((patternKey: string, note: string) => {
     setState((current) => {
       const patternNotes = { ...current.patternNotes };
+      const patternNotesUpdatedAt = { ...current.patternNotesUpdatedAt };
       const clamped = clampToLimit(note, LEETCODE_PATTERN_NOTE_MAX);
       const trimmed = clamped.trim();
       if (trimmed) {
         patternNotes[patternKey] = clamped;
+        patternNotesUpdatedAt[patternKey] = new Date().toISOString();
       } else {
         delete patternNotes[patternKey];
+        delete patternNotesUpdatedAt[patternKey];
       }
-      return { ...current, patternNotes };
+      return { ...current, patternNotes, patternNotesUpdatedAt };
     });
   }, []);
 

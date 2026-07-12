@@ -2,7 +2,7 @@
 
 import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { allowedCheckInDates, isDateAllowedForCheckIn, todayDateId } from "@/lib/date";
+import { isDateAllowedForCheckIn, todayDateId } from "@/lib/date";
 import { createId } from "@/lib/id";
 import { clampToLimit, NOVEL_NOTE_MAX } from "@/lib/limits";
 import { emptyState, loadTrackerState, mergeTrackerState, normalizeTrackerState, saveTrackerState, clearLocalTrackerState } from "@/lib/storage";
@@ -44,7 +44,6 @@ export function useTracker() {
     process.env.NODE_ENV !== "production" ? process.env.NEXT_PUBLIC_DEV_CLOUD_USER_ID ?? null : null;
   const userId = clerkUserId ?? devUserId;
   const [state, setState] = useState<TrackerState>(emptyState);
-  const [validDates, setValidDates] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [messageKind, setMessageKind] = useState<MessageKind>("info");
@@ -76,10 +75,6 @@ export function useTracker() {
         clearTimeout(messageTimerRef.current);
       }
     };
-  }, []);
-
-  useEffect(() => {
-    setValidDates(allowedCheckInDates());
   }, []);
 
   useEffect(() => {
@@ -378,21 +373,6 @@ export function useTracker() {
     showMessage("Character updated.");
   }
 
-  function checkIn(date: string, source: CheckInSource = "manual") {
-    if (!isDateAllowedForCheckIn(date)) {
-      showMessage("Only today, yesterday, or two days ago is allowed.");
-      return;
-    }
-
-    let added = false;
-    setState((current) => {
-      const result = applyCheckInIfMissing(current, date, source);
-      added = result.added;
-      return result.nextState;
-    });
-    showMessage(added ? `Checked in for ${date}.` : `Already checked in for ${date}.`);
-  }
-
   function addNote(input: Pick<NovelNote, "novelId" | "content"> & { date?: string; screenshotDataUrl?: string }) {
     if (!input.content.trim()) return;
     const targetNovel = state.novels.find((novel) => novel.id === input.novelId);
@@ -485,7 +465,6 @@ export function useTracker() {
     state,
     streak,
     checkInDates,
-    validDates,
     message,
     messageKind,
     syncMode,
@@ -500,7 +479,6 @@ export function useTracker() {
     editNote,
     toggleNotePin,
     softDeleteNovel,
-    softDeleteNote,
-    checkIn
+    softDeleteNote
   };
 }

@@ -32,6 +32,8 @@ export interface LeetcodeState {
   attempts: AttemptsMap;
   problemNotes: NotesMap;
   patternNotes: NotesMap;
+  problemNotesUpdatedAt: TimestampMap;
+  patternNotesUpdatedAt: TimestampMap;
 }
 
 export const emptyState: LeetcodeState = {
@@ -39,7 +41,9 @@ export const emptyState: LeetcodeState = {
   solvedAt: {},
   attempts: {},
   problemNotes: {},
-  patternNotes: {}
+  patternNotes: {},
+  problemNotesUpdatedAt: {},
+  patternNotesUpdatedAt: {}
 };
 
 function normalizeSolved(input: unknown): SolvedMap {
@@ -95,6 +99,19 @@ function normalizeNotes(input: unknown): NotesMap {
   return result;
 }
 
+// Accepts a map of key -> ISO timestamp for when a note was last saved. Only
+// keeps timestamps for keys that still have a note; anything invalid is dropped.
+function normalizeNoteTimestamps(input: unknown, notes: NotesMap): TimestampMap {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const result: TimestampMap = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value !== "string" || value.length === 0) continue;
+    if (Number.isNaN(Date.parse(value))) continue;
+    if (notes[key]) result[key] = value;
+  }
+  return result;
+}
+
 // Remap a legacy problem key (`${id}:${index}`) to its stable slug key. Keys
 // already in the new format pass through untouched. Legacy-format keys with no
 // mapping (e.g. a problem that was later removed) return null so callers can
@@ -144,7 +161,19 @@ export function migrateLegacyKeys(state: LeetcodeState): LeetcodeState {
     if (next) patternNotes[next] = value;
   }
 
-  return { solved, solvedAt, attempts, problemNotes, patternNotes };
+  const problemNotesUpdatedAt: TimestampMap = {};
+  for (const [key, value] of Object.entries(state.problemNotesUpdatedAt)) {
+    const next = migrateProblemKey(key);
+    if (next && problemNotes[next]) problemNotesUpdatedAt[next] = value;
+  }
+
+  const patternNotesUpdatedAt: TimestampMap = {};
+  for (const [key, value] of Object.entries(state.patternNotesUpdatedAt)) {
+    const next = migratePatternKey(key);
+    if (next && patternNotes[next]) patternNotesUpdatedAt[next] = value;
+  }
+
+  return { solved, solvedAt, attempts, problemNotes, patternNotes, problemNotesUpdatedAt, patternNotesUpdatedAt };
 }
 
 export function normalizeState(input: unknown): LeetcodeState {
@@ -157,12 +186,16 @@ export function normalizeState(input: unknown): LeetcodeState {
   // New format: has a `solved` key.
   if ("solved" in parsed || "problemNotes" in parsed || "patternNotes" in parsed) {
     const solved = normalizeSolved(parsed.solved);
+    const problemNotes = normalizeNotes(parsed.problemNotes);
+    const patternNotes = normalizeNotes(parsed.patternNotes);
     return migrateLegacyKeys({
       solved,
       solvedAt: normalizeTimestamps(parsed.solvedAt, solved),
       attempts: normalizeAttempts(parsed.attempts),
-      problemNotes: normalizeNotes(parsed.problemNotes),
-      patternNotes: normalizeNotes(parsed.patternNotes)
+      problemNotes,
+      patternNotes,
+      problemNotesUpdatedAt: normalizeNoteTimestamps(parsed.problemNotesUpdatedAt, problemNotes),
+      patternNotesUpdatedAt: normalizeNoteTimestamps(parsed.patternNotesUpdatedAt, patternNotes)
     });
   }
 
@@ -172,7 +205,9 @@ export function normalizeState(input: unknown): LeetcodeState {
     solvedAt: {},
     attempts: {},
     problemNotes: {},
-    patternNotes: {}
+    patternNotes: {},
+    problemNotesUpdatedAt: {},
+    patternNotesUpdatedAt: {}
   });
 }
 
@@ -222,6 +257,22 @@ function mergeNotes(local: NotesMap, cloud: NotesMap): NotesMap {
   return result;
 }
 
+// Keep the most recent save timestamp on conflict, but only for keys that still
+// have a note after merging.
+function mergeNoteTimestamps(local: TimestampMap, cloud: TimestampMap, notes: NotesMap): TimestampMap {
+  const result: TimestampMap = {};
+  for (const key of Object.keys(notes)) {
+    const localTs = local[key];
+    const cloudTs = cloud[key];
+    if (localTs && cloudTs) {
+      result[key] = Date.parse(localTs) >= Date.parse(cloudTs) ? localTs : cloudTs;
+    } else if (localTs || cloudTs) {
+      result[key] = localTs ?? cloudTs;
+    }
+  }
+  return result;
+}
+
 export function mergeLeetcodeState(local: LeetcodeState, cloud: LeetcodeState): LeetcodeState {
   const solved = { ...local.solved, ...cloud.solved };
 
@@ -248,11 +299,24 @@ export function mergeLeetcodeState(local: LeetcodeState, cloud: LeetcodeState): 
     attempts[key] = Array.from(merged).sort((a, b) => Date.parse(a) - Date.parse(b));
   }
 
+  const problemNotes = mergeNotes(local.problemNotes, cloud.problemNotes);
+  const patternNotes = mergeNotes(local.patternNotes, cloud.patternNotes);
+
   return {
     solved,
     solvedAt,
     attempts,
-    problemNotes: mergeNotes(local.problemNotes, cloud.problemNotes),
-    patternNotes: mergeNotes(local.patternNotes, cloud.patternNotes)
+    problemNotes,
+    patternNotes,
+    problemNotesUpdatedAt: mergeNoteTimestamps(
+      local.problemNotesUpdatedAt,
+      cloud.problemNotesUpdatedAt,
+      problemNotes
+    ),
+    patternNotesUpdatedAt: mergeNoteTimestamps(
+      local.patternNotesUpdatedAt,
+      cloud.patternNotesUpdatedAt,
+      patternNotes
+    )
   };
 }
