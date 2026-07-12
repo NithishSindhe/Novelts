@@ -4,8 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateLabel, todayDateId } from "@/lib/date";
+import { NOVEL_NOTE_MAX } from "@/lib/limits";
 import { useTracker } from "@/lib/useTracker";
 import { useMountTransition } from "@/lib/useMountTransition";
+import { CharCounter } from "@/components/CharCounter";
 
 const DELETED_TAG = "deleted";
 
@@ -234,11 +236,13 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                 <form className="mt-3 space-y-2" onSubmit={onAddNote}>
                   <textarea
                     className="min-h-28 w-full resize-y rounded-2xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
+                    maxLength={NOVEL_NOTE_MAX}
                     onChange={(event) => setNoteContent(event.target.value)}
                     placeholder="Write your chapter note"
                     required
                     value={noteContent}
                   />
+                  <CharCounter count={noteContent.length} max={NOVEL_NOTE_MAX} />
                   {/* Screenshot upload temporarily disabled. */}
                   <button
                     className="rounded-2xl border border-accent-border bg-accent-soft px-4 py-2 text-sm font-semibold text-fg transition hover:bg-accent hover:text-accent-fg"
@@ -507,9 +511,11 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                         <div className="mt-2 space-y-2 animate-expand-in" onClick={(event) => event.preventDefault()}>
                           <textarea
                             className="min-h-20 w-full resize-y rounded-xl border border-border bg-surface-2 px-2 py-2 text-sm text-fg outline-none focus:border-accent"
+                            maxLength={NOVEL_NOTE_MAX}
                             onChange={(event) => setEditingNoteContent(event.target.value)}
                             value={editingNoteContent}
                           />
+                          <CharCounter count={editingNoteContent.length} max={NOVEL_NOTE_MAX} />
                           <div className="flex gap-2">
                             <button
                               className="rounded-xl border border-accent-border px-2 py-1 text-xs text-accent"

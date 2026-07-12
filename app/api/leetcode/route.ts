@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveUserId } from "@/lib/server/authUser";
 import { readLeetcodeState, writeLeetcodeState } from "@/lib/server/leetcodeRepo";
+import { logServerError } from "@/lib/server/log";
 
 export async function GET() {
   const userId = await resolveUserId();
@@ -12,6 +13,7 @@ export async function GET() {
     const state = await readLeetcodeState(userId);
     return NextResponse.json({ state });
   } catch (error) {
+    logServerError("GET /api/leetcode", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown server error" },
       { status: 500 }
@@ -36,7 +38,7 @@ export async function PUT(request: Request) {
     await writeLeetcodeState(userId, body.state);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.log(error);
+    logServerError("PUT /api/leetcode", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown server error" },
       { status: 500 }

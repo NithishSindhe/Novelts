@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { formatDateLabel } from "@/lib/date";
+import { NOVEL_NOTE_MAX } from "@/lib/limits";
 import { useTracker } from "@/lib/useTracker";
+import { CharCounter } from "@/components/CharCounter";
 
 const DELETED_TAG = "deleted";
 
@@ -178,9 +180,11 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
                     <div className="mt-4 space-y-2 animate-expand-in">
                       <textarea
                         className="min-h-[24rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none focus:border-accent"
+                        maxLength={NOVEL_NOTE_MAX}
                         onChange={(event) => setEditingContent(event.target.value)}
                         value={editingContent}
                       />
+                      <CharCounter count={editingContent.length} max={NOVEL_NOTE_MAX} />
                       <button
                         className="rounded-xl border border-border px-3 py-1 text-xs text-fg-muted"
                         onClick={() => setEditing(false)}

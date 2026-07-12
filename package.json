@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:migrate": "node scripts/migrate.cjs",
+    "db:migrate:status": "node scripts/migrate.cjs --dry-run"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.11.0",

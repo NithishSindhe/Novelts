@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { LEETCODE_PATTERNS, type Difficulty, type LeetProblem } from "@/lib/leetcodeData";
+import { LEETCODE_PATTERN_NOTE_MAX, LEETCODE_PROBLEM_NOTE_MAX } from "@/lib/limits";
 import { useLeetcode } from "@/lib/useLeetcode";
+import { CharCounter } from "@/components/CharCounter";
 
 const DIFFICULTY_STYLES: Record<Difficulty, string> = {
   Easy: "text-emerald-600 dark:text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
@@ -15,11 +17,11 @@ const DIFFICULTY_STYLES: Record<Difficulty, string> = {
 const PATTERN_NOTE_KEY = "pattern";
 
 interface PatternWorkspaceProps {
-  patternId: string;
+  patternSlug: string;
   selectedNote?: string;
 }
 
-export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspaceProps) {
+export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspaceProps) {
   const {
     ready,
     isSolved,
@@ -36,14 +38,14 @@ export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspacePr
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const numericId = Number(patternId);
   const pattern = useMemo(
-    () => LEETCODE_PATTERNS.find((item) => item.id === numericId) ?? null,
-    [numericId]
+    () => LEETCODE_PATTERNS.find((item) => item.slug === patternSlug) ?? null,
+    [patternSlug]
   );
 
   const [hideCompleted, setHideCompleted] = useState(false);
   const [confirmAttemptKey, setConfirmAttemptKey] = useState<string | null>(null);
+  const [editorLength, setEditorLength] = useState(0);
 
   const progress = useMemo(() => {
     if (!pattern) return { solved: 0, total: 0 };
@@ -67,10 +69,22 @@ export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspacePr
     return match ?? null;
   }, [pattern, selectedNote]);
 
+  // Keep the character counter in sync with whichever note is open.
+  useEffect(() => {
+    if (!activeNote) {
+      setEditorLength(0);
+      return;
+    }
+    const value = activeNote === "pattern" ? getPatternNote(patternSlug) : getProblemNote(activeNote.key);
+    setEditorLength(value.length);
+    // Only re-sync when the selected note target changes, not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNote, patternSlug]);
+
   function selectNote(key: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("note", key);
-    router.replace(`/leetcode/${patternId}?${params.toString()}`, { scroll: false });
+    router.replace(`/leetcode/${patternSlug}?${params.toString()}`, { scroll: false });
   }
 
   if (ready && !pattern) {
@@ -116,7 +130,9 @@ export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspacePr
           </div>
 
           <div className="mt-4 flex items-center gap-3">
-            <span className="font-tech text-sm text-fg-subtle">{String(numericId).padStart(2, "0")}</span>
+            <span className="font-tech text-sm text-fg-subtle">
+              {pattern ? String(pattern.id).padStart(2, "0") : "--"}
+            </span>
             <h1 className="text-3xl font-bold font-atlas">{pattern?.name ?? "Pattern"}</h1>
           </div>
 
@@ -153,14 +169,14 @@ export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspacePr
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-atlas text-sm font-semibold text-fg">Pattern note</span>
-                  {getPatternNote(numericId).trim() ? (
+                  {getPatternNote(patternSlug).trim() ? (
                     <span className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide text-accent">
                       Written
                     </span>
                   ) : null}
                 </div>
                 <p className="mt-1 line-clamp-1 font-tech text-xs text-fg-muted">
-                  {getPatternNote(numericId).trim() || "Approach, template, gotchas…"}
+                  {getPatternNote(patternSlug).trim() || "Approach, template, gotchas…"}
                 </p>
               </button>
 
@@ -265,11 +281,16 @@ export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspacePr
                   <textarea
                     autoFocus
                     className="themed-scrollbar mt-4 min-h-[22rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
-                    defaultValue={getPatternNote(numericId)}
-                    key={`pattern-${numericId}`}
-                    onChange={(event) => setPatternNote(numericId, event.target.value)}
+                    defaultValue={getPatternNote(patternSlug)}
+                    key={`pattern-${patternSlug}`}
+                    maxLength={LEETCODE_PATTERN_NOTE_MAX}
+                    onChange={(event) => {
+                      setEditorLength(event.target.value.length);
+                      setPatternNote(patternSlug, event.target.value);
+                    }}
                     placeholder="Notes for this pattern (approach, template, gotchas)…"
                   />
+                  <CharCounter count={editorLength} max={LEETCODE_PATTERN_NOTE_MAX} className="mt-1" />
                 </>
               ) : (
                 <>
@@ -282,7 +303,7 @@ export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspacePr
                         rel="noreferrer"
                         target="_blank"
                       >
-                        Open on LeetCode ↗
+                        Open problem on LeetCode ↗
                       </a>
                     </div>
                     <span
@@ -296,9 +317,14 @@ export function PatternWorkspace({ patternId, selectedNote }: PatternWorkspacePr
                     className="themed-scrollbar mt-4 min-h-[22rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
                     defaultValue={getProblemNote(activeNote.key)}
                     key={activeNote.key}
-                    onChange={(event) => setProblemNote(activeNote.key, event.target.value)}
+                    maxLength={LEETCODE_PROBLEM_NOTE_MAX}
+                    onChange={(event) => {
+                      setEditorLength(event.target.value.length);
+                      setProblemNote(activeNote.key, event.target.value);
+                    }}
                     placeholder="Notes for this problem (approach, edge cases, complexity)…"
                   />
+                  <CharCounter count={editorLength} max={LEETCODE_PROBLEM_NOTE_MAX} className="mt-1" />
                 </>
               )}
             </div>

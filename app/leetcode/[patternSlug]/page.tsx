@@ -4,11 +4,11 @@ export default async function LeetcodePatternPage({
   params,
   searchParams
 }: {
-  params: Promise<{ patternId: string }>;
+  params: Promise<{ patternSlug: string }>;
   searchParams: Promise<{ note?: string }>;
 }) {
-  const [{ patternId }, resolvedSearchParams] = await Promise.all([params, searchParams]);
+  const [{ patternSlug }, resolvedSearchParams] = await Promise.all([params, searchParams]);
   const selectedNote = typeof resolvedSearchParams.note === "string" ? resolvedSearchParams.note : undefined;
 
-  return <PatternWorkspace patternId={patternId} selectedNote={selectedNote} />;
+  return <PatternWorkspace patternSlug={patternSlug} selectedNote={selectedNote} />;
 }

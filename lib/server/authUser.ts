@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { logServerError } from "@/lib/server/log";
 
 // Resolve the user id for an authenticated request.
 //
@@ -11,7 +12,7 @@ export async function resolveUserId(): Promise<string | null> {
     const authState = await auth();
     if (authState.userId) return authState.userId;
   } catch (error: unknown) {
-    console.log(error);
+    logServerError("resolveUserId", error);
     // Clerk not configured yet.
   }
 

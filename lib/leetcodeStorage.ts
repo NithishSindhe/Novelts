@@ -2,14 +2,24 @@
 // Kept fully separate from the novel tracker state (own STORAGE_KEY).
 //
 // State shape:
-//   solved:        map of problem key (`${patternId}:${index}`) -> true
+//   solved:        map of problem key (`${patternSlug}:${problemSlug}`) -> true
 //   solvedAt:      map of problem key -> ISO-8601 UTC timestamp of first solve
 //   attempts:      map of problem key -> array of ISO-8601 UTC timestamps, one per
 //                  recorded attempt (append-only; independent of solved status)
 //   problemNotes:  map of problem key -> note text
-//   patternNotes:  map of pattern id (as string) -> note text
+//   patternNotes:  map of pattern slug -> note text
 
-const STORAGE_KEY = "leetcode-tracker-local-first:v1";
+import { LEGACY_PATTERN_ID_TO_SLUG, LEGACY_PROBLEM_KEY_TO_KEY } from "@/lib/leetcodeLegacyMap";
+
+// Bumped to v2 when problem/pattern keys moved from the fragile order-based
+// scheme (`${id}:${index}` / `${id}`) to order-independent slugs. Older
+// payloads are migrated on load; see migrateLegacyKeys / loadState.
+const STORAGE_KEY = "leetcode-tracker-local-first:v2";
+const LEGACY_STORAGE_KEY = "leetcode-tracker-local-first:v1";
+
+// Legacy problem keys look like `12:3`; legacy pattern-note keys look like `12`.
+const LEGACY_PROBLEM_KEY = /^\d+:\d+$/;
+const LEGACY_PATTERN_KEY = /^\d+$/;
 
 export type SolvedMap = Record<string, boolean>;
 export type TimestampMap = Record<string, string>;
@@ -85,6 +95,58 @@ function normalizeNotes(input: unknown): NotesMap {
   return result;
 }
 
+// Remap a legacy problem key (`${id}:${index}`) to its stable slug key. Keys
+// already in the new format pass through untouched. Legacy-format keys with no
+// mapping (e.g. a problem that was later removed) return null so callers can
+// drop them. Idempotent: safe to run on already-migrated state.
+function migrateProblemKey(key: string): string | null {
+  if (!LEGACY_PROBLEM_KEY.test(key)) return key;
+  return LEGACY_PROBLEM_KEY_TO_KEY[key] ?? null;
+}
+
+// Remap a legacy pattern-note key (`${id}`) to its slug. See migrateProblemKey.
+function migratePatternKey(key: string): string | null {
+  if (!LEGACY_PATTERN_KEY.test(key)) return key;
+  return LEGACY_PATTERN_ID_TO_SLUG[key] ?? null;
+}
+
+// Rewrite the keys of every problem-keyed and pattern-keyed map from the legacy
+// order-based scheme to order-independent slug keys. Runs inside normalizeState
+// so both local loads and cloud reads/writes are migrated transparently.
+export function migrateLegacyKeys(state: LeetcodeState): LeetcodeState {
+  const solved: SolvedMap = {};
+  for (const [key, value] of Object.entries(state.solved)) {
+    const next = migrateProblemKey(key);
+    if (next) solved[next] = value;
+  }
+
+  const solvedAt: TimestampMap = {};
+  for (const [key, value] of Object.entries(state.solvedAt)) {
+    const next = migrateProblemKey(key);
+    if (next) solvedAt[next] = value;
+  }
+
+  const attempts: AttemptsMap = {};
+  for (const [key, value] of Object.entries(state.attempts)) {
+    const next = migrateProblemKey(key);
+    if (next) attempts[next] = value;
+  }
+
+  const problemNotes: NotesMap = {};
+  for (const [key, value] of Object.entries(state.problemNotes)) {
+    const next = migrateProblemKey(key);
+    if (next) problemNotes[next] = value;
+  }
+
+  const patternNotes: NotesMap = {};
+  for (const [key, value] of Object.entries(state.patternNotes)) {
+    const next = migratePatternKey(key);
+    if (next) patternNotes[next] = value;
+  }
+
+  return { solved, solvedAt, attempts, problemNotes, patternNotes };
+}
+
 export function normalizeState(input: unknown): LeetcodeState {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return emptyState;
@@ -95,23 +157,23 @@ export function normalizeState(input: unknown): LeetcodeState {
   // New format: has a `solved` key.
   if ("solved" in parsed || "problemNotes" in parsed || "patternNotes" in parsed) {
     const solved = normalizeSolved(parsed.solved);
-    return {
+    return migrateLegacyKeys({
       solved,
       solvedAt: normalizeTimestamps(parsed.solvedAt, solved),
       attempts: normalizeAttempts(parsed.attempts),
       problemNotes: normalizeNotes(parsed.problemNotes),
       patternNotes: normalizeNotes(parsed.patternNotes)
-    };
+    });
   }
 
   // Legacy format: the whole object was a flat solved map (`{ key: true }`).
-  return {
+  return migrateLegacyKeys({
     solved: normalizeSolved(parsed),
     solvedAt: {},
     attempts: {},
     problemNotes: {},
     patternNotes: {}
-  };
+  });
 }
 
 export function loadState(): LeetcodeState {
@@ -119,8 +181,20 @@ export function loadState(): LeetcodeState {
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return emptyState;
-    return normalizeState(JSON.parse(raw));
+    if (raw) return normalizeState(JSON.parse(raw));
+
+    // One-time migration of pre-slug (v1) local data. normalizeState remaps the
+    // legacy keys; we persist under the v2 key and drop the old entry so this
+    // only runs once.
+    const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyRaw) {
+      const migrated = normalizeState(JSON.parse(legacyRaw));
+      saveState(migrated);
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      return migrated;
+    }
+
+    return emptyState;
   } catch {
     return emptyState;
   }

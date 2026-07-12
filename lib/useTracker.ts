@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { allowedCheckInDates, isDateAllowedForCheckIn, todayDateId } from "@/lib/date";
 import { createId } from "@/lib/id";
+import { clampToLimit, NOVEL_NOTE_MAX } from "@/lib/limits";
 import { emptyState, loadTrackerState, mergeTrackerState, normalizeTrackerState, saveTrackerState, clearLocalTrackerState } from "@/lib/storage";
 import { calculateStreak } from "@/lib/streak";
 import type { CharacterEntry, CheckInSource, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
@@ -410,7 +411,7 @@ export function useTracker() {
     const next: NovelNote = {
       id: createId("note"),
       novelId: input.novelId,
-      content: input.content.trim(),
+      content: clampToLimit(input.content.trim(), NOVEL_NOTE_MAX),
       date: noteDate,
       screenshotDataUrl: input.screenshotDataUrl,
       pinned: false,
@@ -437,7 +438,7 @@ export function useTracker() {
     setState((current) => {
       const nextNotes = current.notes.map((note) => {
         if (note.id !== noteId) return note;
-        return { ...note, content: input.content.trim() };
+        return { ...note, content: clampToLimit(input.content.trim(), NOVEL_NOTE_MAX) };
       });
 
       return { ...current, notes: nextNotes };

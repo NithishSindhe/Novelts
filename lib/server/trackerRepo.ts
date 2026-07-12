@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/server/db";
+import { clampToLimit, NOVEL_NOTE_MAX } from "@/lib/limits";
 import { emptyState, normalizeTrackerState } from "@/lib/storage";
 import type { CharacterEntry, CheckInRecord, CheckInSource, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
 
@@ -138,9 +139,12 @@ export async function writeTrackerState(userId: string, input: unknown): Promise
   }
 
   for (const note of state.notes) {
+    // Server-side guard rail: clamp note content so an oversized payload sent
+    // directly to the API cannot exceed the limit enforced in the UI.
+    const content = clampToLimit(note.content, NOVEL_NOTE_MAX);
     statements.push(sql`
       insert into public.notes (id, user_id, novel_id, content, date, screenshot_data_url, pinned, tags, created_at)
-      values (${note.id}, ${userId}, ${novelIdOrNull(note.novelId)}, ${note.content}, ${note.date}, ${note.screenshotDataUrl ?? null}, ${note.pinned ?? false}, ${note.tags ?? []}, ${createdAt(note.createdAt)})
+      values (${note.id}, ${userId}, ${novelIdOrNull(note.novelId)}, ${content}, ${note.date}, ${note.screenshotDataUrl ?? null}, ${note.pinned ?? false}, ${note.tags ?? []}, ${createdAt(note.createdAt)})
     `);
   }
 

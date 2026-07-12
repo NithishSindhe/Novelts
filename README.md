@@ -43,6 +43,7 @@ Optional (local dev only):
    node scripts/apply-migration.cjs db/migrations/0002_leetcode_solved_at.sql
    node scripts/apply-migration.cjs db/migrations/0003_leetcode_attempts.sql
    node scripts/apply-migration.cjs db/migrations/0004_activity_events.sql
+   node scripts/apply-migration.cjs db/migrations/0005_leetcode_pattern_key.sql
    ```
    (Uses the Neon serverless driver over HTTPS, so it works even where direct
    TCP :5432 is blocked. `psql "$DATABASE_URL" -f db/migrations/0001_init.sql`

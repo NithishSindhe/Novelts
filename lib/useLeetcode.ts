@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { markCheckIn } from "@/lib/checkinClient";
 import { todayDateId } from "@/lib/date";
+import { clampToLimit, LEETCODE_PATTERN_NOTE_MAX, LEETCODE_PROBLEM_NOTE_MAX } from "@/lib/limits";
 import { LEETCODE_PATTERNS, TOTAL_PROBLEMS } from "@/lib/leetcodeData";
 import {
   clearLocalState,
@@ -198,9 +199,10 @@ export function useLeetcode() {
   const setProblemNote = useCallback((key: string, note: string) => {
     setState((current) => {
       const problemNotes = { ...current.problemNotes };
-      const trimmed = note.trim();
+      const clamped = clampToLimit(note, LEETCODE_PROBLEM_NOTE_MAX);
+      const trimmed = clamped.trim();
       if (trimmed) {
-        problemNotes[key] = note;
+        problemNotes[key] = clamped;
       } else {
         delete problemNotes[key];
       }
@@ -208,14 +210,15 @@ export function useLeetcode() {
     });
   }, []);
 
-  const setPatternNote = useCallback((patternId: number, note: string) => {
+  const setPatternNote = useCallback((patternKey: string, note: string) => {
     setState((current) => {
       const patternNotes = { ...current.patternNotes };
-      const trimmed = note.trim();
+      const clamped = clampToLimit(note, LEETCODE_PATTERN_NOTE_MAX);
+      const trimmed = clamped.trim();
       if (trimmed) {
-        patternNotes[String(patternId)] = note;
+        patternNotes[patternKey] = clamped;
       } else {
-        delete patternNotes[String(patternId)];
+        delete patternNotes[patternKey];
       }
       return { ...current, patternNotes };
     });
@@ -223,7 +226,7 @@ export function useLeetcode() {
 
   const getProblemNote = useCallback((key: string) => state.problemNotes[key] ?? "", [state.problemNotes]);
   const getPatternNote = useCallback(
-    (patternId: number) => state.patternNotes[String(patternId)] ?? "",
+    (patternKey: string) => state.patternNotes[patternKey] ?? "",
     [state.patternNotes]
   );
 

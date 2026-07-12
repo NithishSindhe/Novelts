@@ -5,7 +5,7 @@
 export type Difficulty = "Easy" | "Medium" | "Hard";
 
 export interface LeetProblem {
-  /** Stable per-instance key: `${patternId}:${index}` */
+  /** Stable, order-independent key: `${patternSlug}:${problemSlug}` */
   key: string;
   title: string;
   slug: string;
@@ -14,9 +14,24 @@ export interface LeetProblem {
 }
 
 export interface LeetPattern {
+  /**
+   * 1-based array position. Kept only for display (zero-padded label) and for
+   * generating the legacy migration map. NOT used as a storage or URL key --
+   * those use the order-independent `slug`.
+   */
   id: number;
+  /** Order-independent, URL- and storage-safe key derived from `name`. */
+  slug: string;
   name: string;
   problems: LeetProblem[];
+}
+
+/** Lowercase, hyphenated, URL-safe slug. */
+export function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export const LEETCODE_URL_BASE = "https://leetcode.com/problems/";
@@ -1062,17 +1077,31 @@ const RAW_PATTERNS: RawPattern[] = [
 
 export const LEETCODE_PATTERNS: LeetPattern[] = RAW_PATTERNS.map((pattern, patternIndex) => {
   const id = patternIndex + 1;
+  const slug = slugify(pattern.name);
   return {
     id,
+    slug,
     name: pattern.name,
-    problems: pattern.rows.map(([title, slug, difficulty], index) => ({
-      key: `${id}:${index}`,
+    problems: pattern.rows.map(([title, problemSlug, difficulty]) => ({
+      key: `${slug}:${problemSlug}`,
       title,
-      slug,
-      url: `${LEETCODE_URL_BASE}${slug}/`,
+      slug: problemSlug,
+      url: `${LEETCODE_URL_BASE}${problemSlug}/`,
       difficulty
     }))
   };
 });
+
+// Fail fast in development if two patterns collapse to the same slug (which
+// would make their URLs and stored notes collide).
+if (process.env.NODE_ENV !== "production") {
+  const seen = new Set<string>();
+  for (const pattern of LEETCODE_PATTERNS) {
+    if (seen.has(pattern.slug)) {
+      throw new Error(`Duplicate pattern slug "${pattern.slug}" for "${pattern.name}"`);
+    }
+    seen.add(pattern.slug);
+  }
+}
 
 export const TOTAL_PROBLEMS = LEETCODE_PATTERNS.reduce((sum, pattern) => sum + pattern.problems.length, 0);

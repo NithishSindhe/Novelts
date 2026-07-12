@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/server/db";
+import { clampToLimit, LEETCODE_PATTERN_NOTE_MAX, LEETCODE_PROBLEM_NOTE_MAX } from "@/lib/limits";
 import { normalizeState, type LeetcodeState } from "@/lib/leetcodeStorage";
 
 async function ensureUser(userId: string): Promise<void> {
@@ -17,7 +18,7 @@ export async function readLeetcodeState(userId: string): Promise<LeetcodeState> 
     sql`select problem_key, solved_at from public.leetcode_solved where user_id = ${userId}`,
     sql`select problem_key, attempted_at from public.leetcode_attempts where user_id = ${userId} order by attempted_at asc`,
     sql`select problem_key, note from public.leetcode_problem_notes where user_id = ${userId}`,
-    sql`select pattern_id, note from public.leetcode_pattern_notes where user_id = ${userId}`
+    sql`select pattern_key, note from public.leetcode_pattern_notes where user_id = ${userId}`
   ]);
 
   const solvedRows = solved as Record<string, unknown>[];
@@ -47,7 +48,7 @@ export async function readLeetcodeState(userId: string): Promise<LeetcodeState> 
       return acc;
     }, {}),
     patternNotes: (patternNotes as Record<string, unknown>[]).reduce<Record<string, string>>((acc, row) => {
-      acc[String(row.pattern_id)] = String(row.note);
+      acc[String(row.pattern_key)] = String(row.note);
       return acc;
     }, {})
   };
@@ -87,18 +88,19 @@ export async function writeLeetcodeState(userId: string, input: unknown): Promis
   }
 
   for (const [key, note] of Object.entries(state.problemNotes)) {
+    // Server-side guard rail against oversized notes sent directly to the API.
+    const clamped = clampToLimit(note, LEETCODE_PROBLEM_NOTE_MAX);
     statements.push(sql`
       insert into public.leetcode_problem_notes (user_id, problem_key, note)
-      values (${userId}, ${key}, ${note})
+      values (${userId}, ${key}, ${clamped})
     `);
   }
 
-  for (const [patternId, note] of Object.entries(state.patternNotes)) {
-    const numericId = Number(patternId);
-    if (!Number.isFinite(numericId)) continue;
+  for (const [patternKey, note] of Object.entries(state.patternNotes)) {
+    const clamped = clampToLimit(note, LEETCODE_PATTERN_NOTE_MAX);
     statements.push(sql`
-      insert into public.leetcode_pattern_notes (user_id, pattern_id, note)
-      values (${userId}, ${numericId}, ${note})
+      insert into public.leetcode_pattern_notes (user_id, pattern_key, note)
+      values (${userId}, ${patternKey}, ${clamped})
     `);
   }
 

@@ -21,8 +21,8 @@ export function LeetcodeTracker() {
   } = useLeetcode();
   const router = useRouter();
 
-  function openPattern(patternId: number, focusPatternNote = false) {
-    router.push(`/leetcode/${patternId}${focusPatternNote ? "?note=pattern" : ""}`);
+  function openPattern(patternSlug: string, focusPatternNote = false) {
+    router.push(`/leetcode/${patternSlug}${focusPatternNote ? "?note=pattern" : ""}`);
   }
 
   const overallPct = useMemo(() => {
@@ -91,7 +91,7 @@ export function LeetcodeTracker() {
               const complete = progress.solved === progress.total;
               const attempting = patternAttempting[pattern.id] ?? 0;
               const problemNotes = problemNoteCountForPattern(pattern);
-              const hasPatternNote = Boolean(getPatternNote(pattern.id).trim());
+              const hasPatternNote = Boolean(getPatternNote(pattern.slug).trim());
 
               const lastSolvedAt = pattern.problems.reduce<string>((latest, problem) => {
                 const ts = getSolvedAt(problem.key);
@@ -112,11 +112,11 @@ export function LeetcodeTracker() {
                   }`}
                   style={{ animationDelay: `${Math.min(index * 35, 420)}ms` }}
                   key={pattern.id}
-                  onClick={() => openPattern(pattern.id)}
+                  onClick={() => openPattern(pattern.slug)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      openPattern(pattern.id);
+                      openPattern(pattern.slug);
                     }
                   }}
                   role="button"
@@ -147,7 +147,7 @@ export function LeetcodeTracker() {
                         }`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          openPattern(pattern.id, true);
+                          openPattern(pattern.slug, true);
                         }}
                         title={hasPatternNote ? "Edit pattern note" : "Add pattern note"}
                         type="button"
