@@ -4,6 +4,8 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "@/app/globals.css";
 import { AuthBar } from "@/components/AuthBar";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/next";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
@@ -35,6 +37,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </div>
           </ClerkProvider>
         </ThemeProvider>
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );
