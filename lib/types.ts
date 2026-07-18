@@ -17,6 +17,12 @@ export interface NovelNote {
   pinned?: boolean;
   tags?: string[];
   createdAt: string;
+  // ISO timestamp of the last local edit. Used to detect notes that have not
+  // yet been pushed to the cloud and to resolve same-id merge conflicts (LWW).
+  updatedAt?: string;
+  // ISO timestamp of the last successful cloud save. A note is "unsynced" when
+  // this is missing or older than updatedAt.
+  syncedAt?: string;
 }
 
 export interface WordEntry {

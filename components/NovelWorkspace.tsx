@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateLabel, todayDateId } from "@/lib/date";
 import { NOVEL_NOTE_MAX } from "@/lib/limits";
 import { useTracker } from "@/lib/useTracker";
+import { isNoteUnsynced } from "@/lib/noteSync";
 import { useMountTransition } from "@/lib/useMountTransition";
 import { CharCounter } from "@/components/CharCounter";
 
@@ -35,7 +36,11 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
     addNote,
     editNote,
     toggleNotePin,
-    softDeleteNote
+    softDeleteNote,
+    syncMode,
+    saveNoteToCloud,
+    saveAllNotesToCloud,
+    unsyncedNoteCount
   } = useTracker();
 
   const novel = useMemo(
@@ -82,6 +87,9 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
   const [noteContent, setNoteContent] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteContent, setEditingNoteContent] = useState("");
+  // Set briefly while the Cancel button is pressed so the textarea's onBlur
+  // discards the edit instead of auto-saving it.
+  const cancelEditRef = useRef(false);
 
   function onAddWord(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -118,12 +126,43 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
     setEditingNoteContent(target.content);
   }
 
-  function saveEditNote() {
+  // Commit the in-progress note edit to the local buffer. Used by the Save
+  // button and by auto-save when focus leaves the editor / the tab is hidden or
+  // closed. Only existing-note edits auto-save; new drafts still need explicit
+  // "Save note". editNote no-ops when the content is unchanged.
+  const commitNoteEdit = useCallback(() => {
     if (!editingNoteId) return;
-    editNote(editingNoteId, { content: editingNoteContent });
+    const content = editingNoteContent;
+    if (content.trim()) {
+      editNote(editingNoteId, { content });
+    }
     setEditingNoteId(null);
     setEditingNoteContent("");
+  }, [editingNoteId, editingNoteContent, editNote]);
+
+  function saveEditNote() {
+    commitNoteEdit();
   }
+
+  // Auto-save an open note edit when the tab is hidden or the page is being
+  // closed/navigated away, so the latest keystrokes are not lost mid-edit.
+  const commitRef = useRef(commitNoteEdit);
+  commitRef.current = commitNoteEdit;
+  useEffect(() => {
+    if (!editingNoteId) return;
+    function flush() {
+      commitRef.current();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") flush();
+    }
+    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [editingNoteId]);
 
   function startEditWord(wordId: string) {
     const target = words.find((item) => item.id === wordId);
@@ -451,12 +490,23 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
               <article className="order-3 min-h-[15rem] rounded-[2rem] border border-border bg-surface p-4 animate-rise-in xl:col-span-2" style={{ animationDelay: "210ms" }}>
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-lg font-semibold font-atlas">Notes</h3>
-                  <Link
-                    className="rounded-2xl border border-accent-border bg-accent-soft px-3 py-1 text-xs text-accent transition hover:bg-accent hover:text-accent-fg"
-                    href={`/novels/${novelId}/notes`}
-                  >
-                    Open reader
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    {syncMode === "cloud" && unsyncedNoteCount > 0 ? (
+                      <button
+                        className="rounded-2xl border border-accent-border bg-accent-soft px-3 py-1 text-xs font-semibold text-accent transition hover:bg-accent hover:text-accent-fg"
+                        onClick={() => void saveAllNotesToCloud()}
+                        type="button"
+                      >
+                        Save all to cloud ({unsyncedNoteCount})
+                      </button>
+                    ) : null}
+                    <Link
+                      className="rounded-2xl border border-accent-border bg-accent-soft px-3 py-1 text-xs text-accent transition hover:bg-accent hover:text-accent-fg"
+                      href={`/novels/${novelId}/notes`}
+                    >
+                      Open reader
+                    </Link>
+                  </div>
                 </div>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {notes.map((entry) => (
@@ -465,8 +515,31 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                       href={`/novels/${novelId}/notes?note=${entry.id}`}
                       key={entry.id}>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs text-accent font-tech">{formatDateLabel(entry.date)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-accent font-tech">{formatDateLabel(entry.date)}</p>
+                          {syncMode === "cloud" && isNoteUnsynced(entry) ? (
+                            <span
+                              className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent"
+                              title="This note is saved on this device but not yet in the cloud."
+                            >
+                              Not saved to cloud
+                            </span>
+                          ) : null}
+                        </div>
                         <div className="flex items-center gap-1">
+                          {syncMode === "cloud" && isNoteUnsynced(entry) ? (
+                            <button
+                              className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void saveNoteToCloud(entry.id);
+                              }}
+                              type="button"
+                            >
+                              Save to cloud
+                            </button>
+                          ) : null}
                           <button
                             className="rounded-xl border border-accent-border px-2 py-1 text-[10px] uppercase tracking-wide text-accent"
                             onClick={(event) => {
@@ -510,8 +583,20 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                       {editingNoteId === entry.id ? (
                         <div className="mt-2 space-y-2 animate-expand-in" onClick={(event) => event.preventDefault()}>
                           <textarea
+                            autoFocus
                             className="min-h-20 w-full resize-y rounded-xl border border-border bg-surface-2 px-2 py-2 text-sm text-fg outline-none focus:border-accent"
                             maxLength={NOVEL_NOTE_MAX}
+                            onBlur={() => {
+                              // Discard (not commit) when the blur is caused by
+                              // clicking Cancel; otherwise auto-save the edit.
+                              if (cancelEditRef.current) {
+                                cancelEditRef.current = false;
+                                setEditingNoteId(null);
+                                setEditingNoteContent("");
+                                return;
+                              }
+                              commitNoteEdit();
+                            }}
                             onChange={(event) => setEditingNoteContent(event.target.value)}
                             value={editingNoteContent}
                           />
@@ -530,9 +615,13 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                             </button>
                             <button
                               className="rounded-xl border border-border px-2 py-1 text-xs text-fg-muted"
+                              onMouseDown={() => {
+                                cancelEditRef.current = true;
+                              }}
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
+                                cancelEditRef.current = false;
                                 setEditingNoteId(null);
                                 setEditingNoteContent("");
                               }}

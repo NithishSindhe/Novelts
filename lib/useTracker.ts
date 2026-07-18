@@ -5,8 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isDateAllowedForCheckIn, todayDateId } from "@/lib/date";
 import { createId } from "@/lib/id";
 import { clampToLimit, NOVEL_NOTE_MAX } from "@/lib/limits";
-import { emptyState, loadTrackerState, mergeTrackerState, normalizeTrackerState, saveTrackerState, clearLocalTrackerState } from "@/lib/storage";
+import { emptyState, loadTrackerState, mergeTrackerState, normalizeTrackerState, saveTrackerState } from "@/lib/storage";
 import { calculateStreak } from "@/lib/streak";
+import { isNoteUnsynced } from "@/lib/noteSync";
 import type { CharacterEntry, CheckInSource, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
 
 type SyncMode = "local" | "cloud";
@@ -105,12 +106,22 @@ export function useTracker() {
           if (cloudResponse.ok) {
             const payload = (await cloudResponse.json()) as { state?: unknown };
             const cloudState = normalizeTrackerState(payload.state);
+            // Notes returned by the server are, by definition, saved in the
+            // cloud. The DB does not store syncedAt, so stamp a fresh one here
+            // so these notes are not wrongly flagged "not saved to cloud".
+            const stampedAt = new Date().toISOString();
+            cloudState.notes = cloudState.notes.map((note) => ({
+              ...note,
+              syncedAt: note.syncedAt ?? stampedAt
+            }));
             const merged = hasLocalData ? mergeTrackerState(localState, cloudState) : cloudState;
 
             if (!cancelled) {
               setState(merged);
             }
 
+            // Persist merged novels/words/characters/check-ins to the cloud.
+            // (Notes are handled separately below via the per-note endpoint.)
             if (hasLocalData) {
               try {
                 await fetch("/api/tracker", {
@@ -118,11 +129,38 @@ export function useTracker() {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ state: merged })
                 });
-                clearLocalTrackerState();
               } catch {
                 if (!cancelled) {
                   showMessage("Merged local data but cloud save failed. Will retry on next change.", "warning", 5000);
                 }
+              }
+            }
+
+            // Auto-sync notes that have never been saved to the cloud (e.g.
+            // anonymous notes written before sign-in). Notes edited-but-synced
+            // stay local until the user explicitly saves them.
+            const neverSynced = merged.notes.filter((note) => !note.syncedAt);
+            if (neverSynced.length) {
+              try {
+                const noteResponse = await fetch("/api/tracker/notes", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ notes: neverSynced })
+                });
+                if (noteResponse.ok && !cancelled) {
+                  const noteResult = (await noteResponse.json()) as { savedIds?: string[] };
+                  const savedIds = new Set(noteResult.savedIds ?? neverSynced.map((note) => note.id));
+                  const syncedAt = new Date().toISOString();
+                  setState((current) => ({
+                    ...current,
+                    notes: current.notes.map((note) =>
+                      savedIds.has(note.id) ? { ...note, syncedAt } : note
+                    )
+                  }));
+                }
+              } catch {
+                // Non-fatal: notes remain marked "not saved to cloud" and can be
+                // saved later via the per-note or "Save all" action.
               }
             }
           } else if (!cancelled) {
@@ -195,6 +233,15 @@ export function useTracker() {
   useEffect(() => {
     if (!ready) return;
 
+    // Local-first: always mirror the full state to localStorage, for both
+    // anonymous and signed-in users, so an unsynced note edit survives a
+    // refresh or crash.
+    saveTrackerState(state);
+
+    // For signed-in users, keep novels/words/characters/check-ins auto-syncing
+    // to the cloud as before. Notes are intentionally excluded from this path
+    // (the server ignores the notes field here); they are local-first and only
+    // reach the cloud via the explicit per-note save actions below.
     if (syncMode === "cloud" && cloudUserId) {
       void fetch("/api/tracker", {
         method: "PUT",
@@ -203,10 +250,7 @@ export function useTracker() {
       }).catch(() => {
         showMessage("Cloud sync failed. Try again in a moment.", "warning", 5000);
       });
-      return;
     }
-
-    saveTrackerState(state);
   }, [state, ready, syncMode, cloudUserId, showMessage]);
 
   const streak = useMemo(() => calculateStreak(state.checkIns), [state.checkIns]);
@@ -396,7 +440,8 @@ export function useTracker() {
       screenshotDataUrl: input.screenshotDataUrl,
       pinned: false,
       tags: [],
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     let addedCheckIn = false;
@@ -415,10 +460,13 @@ export function useTracker() {
       return;
     }
 
+    const trimmed = clampToLimit(input.content.trim(), NOVEL_NOTE_MAX);
+
     setState((current) => {
       const nextNotes = current.notes.map((note) => {
         if (note.id !== noteId) return note;
-        return { ...note, content: clampToLimit(input.content.trim(), NOVEL_NOTE_MAX) };
+        if (note.content === trimmed) return note; // no-op guard: avoid re-flagging as unsynced
+        return { ...note, content: trimmed, updatedAt: new Date().toISOString() };
       });
 
       return { ...current, notes: nextNotes };
@@ -430,7 +478,7 @@ export function useTracker() {
     setState((current) => {
       const nextNotes = current.notes.map((note) => {
         if (note.id !== noteId) return note;
-        return { ...note, pinned: !note.pinned };
+        return { ...note, pinned: !note.pinned, updatedAt: new Date().toISOString() };
       });
 
       return { ...current, notes: nextNotes };
@@ -450,15 +498,96 @@ export function useTracker() {
   }
 
   function softDeleteNote(noteId: string) {
+    let tombstone: NovelNote | null = null;
     setState((current) => {
       const nextNotes = current.notes.map((note) => {
         if (note.id !== noteId) return note;
-        return { ...note, tags: withDeletedTag(note.tags) };
+        const updated = { ...note, tags: withDeletedTag(note.tags), updatedAt: new Date().toISOString() };
+        tombstone = updated;
+        return updated;
       });
       return { ...current, notes: nextNotes };
     });
     showMessage("Note deleted.");
+
+    // A deleted note is hidden from the UI, so the user can never click
+    // "Save to cloud" for it. Push the tombstone immediately (best-effort) so
+    // the delete propagates for signed-in users.
+    if (syncMode === "cloud" && cloudUserId && tombstone) {
+      void pushNotesToCloud([tombstone]);
+    }
   }
+
+  // Push a set of notes to the cloud via the per-note endpoint, retrying a few
+  // times on transient failure. On success the affected notes are stamped with
+  // a fresh syncedAt so their "Not saved to cloud" badge clears. Returns true
+  // when the save succeeded.
+  const pushNotesToCloud = useCallback(
+    async (notes: NovelNote[]): Promise<boolean> => {
+      if (!notes.length) return true;
+
+      const attempts = 3;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          const response = await fetch("/api/tracker/notes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes })
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = (await response.json()) as { savedIds?: string[] };
+          const savedIds = new Set(payload.savedIds ?? notes.map((note) => note.id));
+          const syncedAt = new Date().toISOString();
+          setState((current) => ({
+            ...current,
+            notes: current.notes.map((note) =>
+              savedIds.has(note.id) ? { ...note, syncedAt } : note
+            )
+          }));
+          return true;
+        } catch {
+          if (attempt < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+          }
+        }
+      }
+      return false;
+    },
+    []
+  );
+
+  const saveNoteToCloud = useCallback(
+    async (noteId: string) => {
+      if (syncMode !== "cloud" || !cloudUserId) return;
+      const note = state.notes.find((item) => item.id === noteId);
+      if (!note) return;
+      const ok = await pushNotesToCloud([note]);
+      showMessage(ok ? "Note saved to cloud." : "Couldn't save note to cloud. Try again.", ok ? "info" : "warning");
+    },
+    [syncMode, cloudUserId, state.notes, pushNotesToCloud, showMessage]
+  );
+
+  const saveAllNotesToCloud = useCallback(async () => {
+    if (syncMode !== "cloud" || !cloudUserId) return;
+    const unsynced = state.notes.filter((note) => isNoteUnsynced(note));
+    if (!unsynced.length) {
+      showMessage("All notes are already saved to cloud.");
+      return;
+    }
+    const ok = await pushNotesToCloud(unsynced);
+    showMessage(
+      ok ? `Saved ${unsynced.length} ${unsynced.length === 1 ? "note" : "notes"} to cloud.` : "Couldn't save notes to cloud. Try again.",
+      ok ? "info" : "warning"
+    );
+  }, [syncMode, cloudUserId, state.notes, pushNotesToCloud, showMessage]);
+
+  const unsyncedNoteCount = useMemo(
+    () =>
+      syncMode === "cloud"
+        ? state.notes.filter((note) => !hasDeletedTag(note.tags) && isNoteUnsynced(note)).length
+        : 0,
+    [syncMode, state.notes]
+  );
 
   return {
     ready,
@@ -479,6 +608,9 @@ export function useTracker() {
     editNote,
     toggleNotePin,
     softDeleteNovel,
-    softDeleteNote
+    softDeleteNote,
+    saveNoteToCloud,
+    saveAllNotesToCloud,
+    unsyncedNoteCount
   };
 }

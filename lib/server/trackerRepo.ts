@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/server/db";
 import { clampToLimit, NOVEL_NOTE_MAX } from "@/lib/limits";
-import { emptyState, normalizeTrackerState } from "@/lib/storage";
+import { normalizeTrackerState } from "@/lib/storage";
 import type { CharacterEntry, CheckInRecord, CheckInSource, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
 
 async function ensureUser(userId: string): Promise<void> {
@@ -117,34 +117,27 @@ export async function writeTrackerState(userId: string, input: unknown): Promise
   const nowIso = () => new Date().toISOString();
   const createdAt = (value?: string) => value || nowIso();
 
-  // Replace-all for this user, transactionally: clear then re-insert.
-  // Deleting the novels cascades to notes/words/characters, so we clear the
-  // leaf tables explicitly first only for rows that reference no novel.
-  // Note: check_ins are intentionally NOT deleted here. They are synced
-  // additively (upsert below) so that check-ins recorded by other features
-  // (e.g. LeetCode via /api/checkin) are not wiped by the tracker's
-  // whole-state replace.
+  // Replace-all for this user's words/characters, transactionally. Notes are
+  // intentionally NOT managed here: they are local-first and only persisted via
+  // the explicit per-note save path (upsertNotes). Novels are upserted rather
+  // than delete-and-reinserted so the FK cascade does not wipe the user's notes
+  // on an ordinary whole-state sync.
+  // Note: check_ins are also synced additively (upsert below) so check-ins
+  // recorded by other features (e.g. LeetCode) are not wiped.
   const statements = [
-    sql`delete from public.notes where user_id = ${userId}`,
     sql`delete from public.words where user_id = ${userId}`,
-    sql`delete from public.characters where user_id = ${userId}`,
-    sql`delete from public.novels where user_id = ${userId}`
+    sql`delete from public.characters where user_id = ${userId}`
   ];
 
   for (const novel of state.novels) {
     statements.push(sql`
       insert into public.novels (id, user_id, title, author, tags, created_at)
       values (${novel.id}, ${userId}, ${novel.title}, ${novel.author ?? ""}, ${novel.tags ?? []}, ${createdAt(novel.createdAt)})
-    `);
-  }
-
-  for (const note of state.notes) {
-    // Server-side guard rail: clamp note content so an oversized payload sent
-    // directly to the API cannot exceed the limit enforced in the UI.
-    const content = clampToLimit(note.content, NOVEL_NOTE_MAX);
-    statements.push(sql`
-      insert into public.notes (id, user_id, novel_id, content, date, screenshot_data_url, pinned, tags, created_at)
-      values (${note.id}, ${userId}, ${novelIdOrNull(note.novelId)}, ${content}, ${note.date}, ${note.screenshotDataUrl ?? null}, ${note.pinned ?? false}, ${note.tags ?? []}, ${createdAt(note.createdAt)})
+      on conflict (id) do update set
+        title = excluded.title,
+        author = excluded.author,
+        tags = excluded.tags
+      where public.novels.user_id = ${userId}
     `);
   }
 
@@ -175,4 +168,52 @@ export async function writeTrackerState(userId: string, input: unknown): Promise
   }
 
   await sql.transaction(statements);
+}
+
+// Upsert a small set of individual notes without touching the rest of the
+// user's tracker state. Used by the explicit per-note "Save to cloud" action so
+// that saving a note does not require a whole-state replace. Notes whose
+// novel_id no longer maps to one of the user's novels are stored with a null
+// novel_id (consistent with writeTrackerState). Returns the ids that were
+// persisted so the client can mark them synced.
+export async function upsertNotes(userId: string, input: unknown): Promise<string[]> {
+  const notes = Array.isArray(input) ? (input as NovelNote[]) : [];
+  if (!notes.length) return [];
+
+  const sql = getDb();
+  await ensureUser(userId);
+
+  const nowIso = () => new Date().toISOString();
+  const createdAt = (value?: string) => value || nowIso();
+
+  // Resolve which novel ids actually belong to this user so we can keep the
+  // notes.novel_id FK valid.
+  const ownedNovels = await sql`select id from public.novels where user_id = ${userId}`;
+  const novelIds = new Set((ownedNovels as Array<{ id: string }>).map((row) => row.id));
+  const novelIdOrNull = (novelId?: string) => (novelId && novelIds.has(novelId) ? novelId : null);
+
+  const saved: string[] = [];
+  const statements = notes
+    .filter((note) => note && typeof note.id === "string" && note.id.length > 0)
+    .map((note) => {
+      saved.push(note.id);
+      const content = clampToLimit(note.content ?? "", NOVEL_NOTE_MAX);
+      return sql`
+        insert into public.notes (id, user_id, novel_id, content, date, screenshot_data_url, pinned, tags, created_at)
+        values (${note.id}, ${userId}, ${novelIdOrNull(note.novelId)}, ${content}, ${note.date}, ${note.screenshotDataUrl ?? null}, ${note.pinned ?? false}, ${note.tags ?? []}, ${createdAt(note.createdAt)})
+        on conflict (id) do update set
+          novel_id = excluded.novel_id,
+          content = excluded.content,
+          date = excluded.date,
+          screenshot_data_url = excluded.screenshot_data_url,
+          pinned = excluded.pinned,
+          tags = excluded.tags
+        where public.notes.user_id = ${userId}
+      `;
+    });
+
+  if (!statements.length) return [];
+
+  await sql.transaction(statements);
+  return saved;
 }

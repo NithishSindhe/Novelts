@@ -32,7 +32,15 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
     getProblemNote,
     setProblemNote,
     getPatternNote,
-    setPatternNote
+    setPatternNote,
+    saveProblemNoteToCloud,
+    savePatternNoteToCloud,
+    saveAllNotesToCloud,
+    isProblemNoteUnsynced,
+    isPatternNoteUnsynced,
+    getNoteSaveState,
+    unsyncedNoteCount,
+    isSignedIn
   } = useLeetcode();
 
   const router = useRouter();
@@ -46,6 +54,16 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
   const [hideCompleted, setHideCompleted] = useState(false);
   const [confirmAttemptKey, setConfirmAttemptKey] = useState<string | null>(null);
   const [editorLength, setEditorLength] = useState(0);
+  const [savingAll, setSavingAll] = useState(false);
+
+  async function handleSaveAll() {
+    setSavingAll(true);
+    try {
+      await saveAllNotesToCloud();
+    } finally {
+      setSavingAll(false);
+    }
+  }
 
   const progress = useMemo(() => {
     if (!pattern) return { solved: 0, total: 0 };
@@ -128,6 +146,19 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
               {hideCompleted ? "Showing unsolved" : "Hide solved"}
             </button>
           </div>
+
+          {isSignedIn && unsyncedNoteCount > 0 ? (
+            <div className="mt-3 flex items-center justify-end">
+              <button
+                className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-600 transition hover:bg-amber-500/20 disabled:opacity-60 dark:text-amber-400"
+                disabled={savingAll}
+                onClick={handleSaveAll}
+                type="button"
+              >
+                {savingAll ? "Saving…" : `Save all unsaved (${unsyncedNoteCount})`}
+              </button>
+            </div>
+          ) : null}
 
           <div className="mt-4 flex items-center gap-3">
             <span className="font-tech text-sm text-fg-subtle">
@@ -291,6 +322,13 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
                     placeholder="Notes for this pattern (approach, template, gotchas)…"
                   />
                   <CharCounter count={editorLength} max={LEETCODE_PATTERN_NOTE_MAX} className="mt-1" />
+                  <NoteSaveBar
+                    isSignedIn={isSignedIn}
+                    hasNote={Boolean(getPatternNote(patternSlug).trim())}
+                    unsynced={isPatternNoteUnsynced(patternSlug)}
+                    saveState={getNoteSaveState("pattern", patternSlug)}
+                    onSave={() => void savePatternNoteToCloud(patternSlug)}
+                  />
                 </>
               ) : (
                 <>
@@ -325,6 +363,13 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
                     placeholder="Notes for this problem (approach, edge cases, complexity)…"
                   />
                   <CharCounter count={editorLength} max={LEETCODE_PROBLEM_NOTE_MAX} className="mt-1" />
+                  <NoteSaveBar
+                    isSignedIn={isSignedIn}
+                    hasNote={Boolean(getProblemNote(activeNote.key).trim())}
+                    unsynced={isProblemNoteUnsynced(activeNote.key)}
+                    saveState={getNoteSaveState("problem", activeNote.key)}
+                    onSave={() => void saveProblemNoteToCloud(activeNote.key)}
+                  />
                 </>
               )}
             </div>
@@ -384,4 +429,44 @@ function formatTimestamp(iso: string): string {
     hour: "numeric",
     minute: "2-digit"
   });
+}
+
+interface NoteSaveBarProps {
+  // Only signed-in users can sync; anonymous users see nothing here.
+  isSignedIn: boolean;
+  hasNote: boolean;
+  unsynced: boolean;
+  saveState?: "saving" | "error";
+  onSave: () => void;
+}
+
+// Per-note cloud-save control: shows an unsaved badge + Save button while the
+// note has local edits, a retry affordance on failure, and a saved state once
+// synced. Renders nothing for anonymous users or an empty editor.
+function NoteSaveBar({ isSignedIn, hasNote, unsynced, saveState, onSave }: NoteSaveBarProps) {
+  if (!isSignedIn) return null;
+
+  const saving = saveState === "saving";
+  const failed = saveState === "error";
+
+  if (!unsynced && !failed) {
+    if (!hasNote) return null;
+    return <p className="mt-2 font-tech text-[11px] text-fg-subtle">Saved to cloud</p>;
+  }
+
+  return (
+    <div className="mt-2 flex items-center justify-between gap-2">
+      <span className="font-tech text-[11px] text-amber-600 dark:text-amber-400">
+        {failed ? "Save failed — try again" : "Not saved to cloud"}
+      </span>
+      <button
+        className="rounded-xl border border-accent-border bg-accent-soft px-3 py-1 font-tech text-[11px] font-semibold text-accent transition hover:bg-accent hover:text-accent-fg disabled:opacity-60"
+        disabled={saving}
+        onClick={onSave}
+        type="button"
+      >
+        {saving ? "Saving…" : failed ? "Retry" : "Save to cloud"}
+      </button>
+    </div>
+  );
 }

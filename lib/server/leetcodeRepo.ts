@@ -62,7 +62,11 @@ export async function readLeetcodeState(userId: string): Promise<LeetcodeState> 
         acc[String(row.pattern_key)] = new Date(row.updated_at as string).toISOString();
       }
       return acc;
-    }, {})
+    }, {}),
+    // Client-only sync markers; never persisted server-side. The client stamps
+    // these on read (a cloud note is, by definition, saved).
+    problemNotesSyncedAt: {},
+    patternNotesSyncedAt: {}
   };
 
   return normalizeState(state);
@@ -74,11 +78,13 @@ export async function writeLeetcodeState(userId: string, input: unknown): Promis
 
   await ensureUser(userId);
 
+  // NOTE: problem/pattern notes are intentionally NOT written here. They are
+  // persisted only via upsertLeetcodeNote (the /api/leetcode/notes route) so
+  // that the periodic whole-state sync of solved/attempts can never clobber a
+  // cloud note that was saved explicitly. Deleting notes here would wipe them.
   const statements = [
     sql`delete from public.leetcode_solved where user_id = ${userId}`,
-    sql`delete from public.leetcode_attempts where user_id = ${userId}`,
-    sql`delete from public.leetcode_problem_notes where user_id = ${userId}`,
-    sql`delete from public.leetcode_pattern_notes where user_id = ${userId}`
+    sql`delete from public.leetcode_attempts where user_id = ${userId}`
   ];
 
   for (const key of Object.keys(state.solved)) {
@@ -99,24 +105,54 @@ export async function writeLeetcodeState(userId: string, input: unknown): Promis
     }
   }
 
-  for (const [key, note] of Object.entries(state.problemNotes)) {
-    // Server-side guard rail against oversized notes sent directly to the API.
-    const clamped = clampToLimit(note, LEETCODE_PROBLEM_NOTE_MAX);
-    const updatedAt = state.problemNotesUpdatedAt[key] ?? null;
-    statements.push(sql`
-      insert into public.leetcode_problem_notes (user_id, problem_key, note, updated_at)
-      values (${userId}, ${key}, ${clamped}, coalesce(${updatedAt}::timestamptz, timezone('utc', now())))
-    `);
-  }
-
-  for (const [patternKey, note] of Object.entries(state.patternNotes)) {
-    const clamped = clampToLimit(note, LEETCODE_PATTERN_NOTE_MAX);
-    const updatedAt = state.patternNotesUpdatedAt[patternKey] ?? null;
-    statements.push(sql`
-      insert into public.leetcode_pattern_notes (user_id, pattern_key, note, updated_at)
-      values (${userId}, ${patternKey}, ${clamped}, coalesce(${updatedAt}::timestamptz, timezone('utc', now())))
-    `);
-  }
-
   await sql.transaction(statements);
+}
+
+export type LeetcodeNoteKind = "problem" | "pattern";
+
+// Persist a single problem- or pattern-scoped note. An empty note deletes the
+// row (clearing a note removes it from the cloud). Non-empty notes are upserted
+// on the composite primary key so repeated saves update in place. Returns the
+// ISO timestamp the row was written with (or the delete time) so the client can
+// stamp its syncedAt marker.
+export async function upsertLeetcodeNote(
+  userId: string,
+  kind: LeetcodeNoteKind,
+  key: string,
+  note: string,
+  updatedAt?: string
+): Promise<string> {
+  const sql = getDb();
+  await ensureUser(userId);
+
+  const trimmed = note.trim();
+  const savedAt = updatedAt && !Number.isNaN(Date.parse(updatedAt)) ? updatedAt : new Date().toISOString();
+
+  if (kind === "problem") {
+    if (trimmed.length === 0) {
+      await sql`delete from public.leetcode_problem_notes where user_id = ${userId} and problem_key = ${key}`;
+      return savedAt;
+    }
+    const clamped = clampToLimit(note, LEETCODE_PROBLEM_NOTE_MAX);
+    await sql`
+      insert into public.leetcode_problem_notes (user_id, problem_key, note, updated_at)
+      values (${userId}, ${key}, ${clamped}, ${savedAt}::timestamptz)
+      on conflict (user_id, problem_key)
+        do update set note = excluded.note, updated_at = excluded.updated_at
+    `;
+    return savedAt;
+  }
+
+  if (trimmed.length === 0) {
+    await sql`delete from public.leetcode_pattern_notes where user_id = ${userId} and pattern_key = ${key}`;
+    return savedAt;
+  }
+  const clamped = clampToLimit(note, LEETCODE_PATTERN_NOTE_MAX);
+  await sql`
+    insert into public.leetcode_pattern_notes (user_id, pattern_key, note, updated_at)
+    values (${userId}, ${key}, ${clamped}, ${savedAt}::timestamptz)
+    on conflict (user_id, pattern_key)
+      do update set note = excluded.note, updated_at = excluded.updated_at
+  `;
+  return savedAt;
 }

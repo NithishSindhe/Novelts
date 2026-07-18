@@ -34,6 +34,11 @@ export interface LeetcodeState {
   patternNotes: NotesMap;
   problemNotesUpdatedAt: TimestampMap;
   patternNotesUpdatedAt: TimestampMap;
+  // Client-only maps of key -> ISO timestamp of the last successful cloud save.
+  // Not stored in the DB; on cloud read they are stamped equal to the matching
+  // updatedAt (a note returned by the server is, by definition, saved).
+  problemNotesSyncedAt: TimestampMap;
+  patternNotesSyncedAt: TimestampMap;
 }
 
 export const emptyState: LeetcodeState = {
@@ -43,8 +48,18 @@ export const emptyState: LeetcodeState = {
   problemNotes: {},
   patternNotes: {},
   problemNotesUpdatedAt: {},
-  patternNotesUpdatedAt: {}
+  patternNotesUpdatedAt: {},
+  problemNotesSyncedAt: {},
+  patternNotesSyncedAt: {}
 };
+
+// A note is "unsynced" (not saved to cloud) when it has never been synced, or
+// when it has been edited locally since the last successful cloud save.
+export function isNoteUnsynced(updatedAt?: string, syncedAt?: string): boolean {
+  if (!updatedAt) return false; // no note / no local edit tracked
+  if (!syncedAt) return true;
+  return Date.parse(updatedAt) > Date.parse(syncedAt);
+}
 
 function normalizeSolved(input: unknown): SolvedMap {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
@@ -173,7 +188,29 @@ export function migrateLegacyKeys(state: LeetcodeState): LeetcodeState {
     if (next && patternNotes[next]) patternNotesUpdatedAt[next] = value;
   }
 
-  return { solved, solvedAt, attempts, problemNotes, patternNotes, problemNotesUpdatedAt, patternNotesUpdatedAt };
+  const problemNotesSyncedAt: TimestampMap = {};
+  for (const [key, value] of Object.entries(state.problemNotesSyncedAt)) {
+    const next = migrateProblemKey(key);
+    if (next && problemNotes[next]) problemNotesSyncedAt[next] = value;
+  }
+
+  const patternNotesSyncedAt: TimestampMap = {};
+  for (const [key, value] of Object.entries(state.patternNotesSyncedAt)) {
+    const next = migratePatternKey(key);
+    if (next && patternNotes[next]) patternNotesSyncedAt[next] = value;
+  }
+
+  return {
+    solved,
+    solvedAt,
+    attempts,
+    problemNotes,
+    patternNotes,
+    problemNotesUpdatedAt,
+    patternNotesUpdatedAt,
+    problemNotesSyncedAt,
+    patternNotesSyncedAt
+  };
 }
 
 export function normalizeState(input: unknown): LeetcodeState {
@@ -195,7 +232,9 @@ export function normalizeState(input: unknown): LeetcodeState {
       problemNotes,
       patternNotes,
       problemNotesUpdatedAt: normalizeNoteTimestamps(parsed.problemNotesUpdatedAt, problemNotes),
-      patternNotesUpdatedAt: normalizeNoteTimestamps(parsed.patternNotesUpdatedAt, patternNotes)
+      patternNotesUpdatedAt: normalizeNoteTimestamps(parsed.patternNotesUpdatedAt, patternNotes),
+      problemNotesSyncedAt: normalizeNoteTimestamps(parsed.problemNotesSyncedAt, problemNotes),
+      patternNotesSyncedAt: normalizeNoteTimestamps(parsed.patternNotesSyncedAt, patternNotes)
     });
   }
 
@@ -207,7 +246,9 @@ export function normalizeState(input: unknown): LeetcodeState {
     problemNotes: {},
     patternNotes: {},
     problemNotesUpdatedAt: {},
-    patternNotesUpdatedAt: {}
+    patternNotesUpdatedAt: {},
+    problemNotesSyncedAt: {},
+    patternNotesSyncedAt: {}
   });
 }
 
@@ -240,11 +281,6 @@ export function saveState(state: LeetcodeState): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-export function clearLocalState(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(STORAGE_KEY);
-}
-
 // Merge anonymous local LeetCode progress into cloud progress on sign-in.
 // Solved problems are unioned (a problem solved anywhere stays solved). For
 // notes, a non-empty cloud note wins on conflict; otherwise the local note is
@@ -269,6 +305,26 @@ function mergeNoteTimestamps(local: TimestampMap, cloud: TimestampMap, notes: No
     } else if (localTs || cloudTs) {
       result[key] = localTs ?? cloudTs;
     }
+  }
+  return result;
+}
+
+// Merge the "last saved to cloud" timestamps. mergeNotes gives a non-empty
+// cloud note priority on conflict, so mirror that here: when the cloud note
+// won, keep the cloud syncedAt (the note is saved); otherwise keep the local
+// syncedAt, which is typically absent for anonymous edits and leaves the note
+// flagged unsynced so the post-merge auto-sync pushes it.
+function mergeNoteSyncedAt(
+  localSynced: TimestampMap,
+  cloudSynced: TimestampMap,
+  cloudNotes: NotesMap,
+  mergedNotes: NotesMap
+): TimestampMap {
+  const result: TimestampMap = {};
+  for (const key of Object.keys(mergedNotes)) {
+    const cloudWon = Boolean(cloudNotes[key] && cloudNotes[key].length > 0);
+    const ts = cloudWon ? cloudSynced[key] : localSynced[key];
+    if (ts) result[key] = ts;
   }
   return result;
 }
@@ -316,6 +372,18 @@ export function mergeLeetcodeState(local: LeetcodeState, cloud: LeetcodeState): 
     patternNotesUpdatedAt: mergeNoteTimestamps(
       local.patternNotesUpdatedAt,
       cloud.patternNotesUpdatedAt,
+      patternNotes
+    ),
+    problemNotesSyncedAt: mergeNoteSyncedAt(
+      local.problemNotesSyncedAt,
+      cloud.problemNotesSyncedAt,
+      cloud.problemNotes,
+      problemNotes
+    ),
+    patternNotesSyncedAt: mergeNoteSyncedAt(
+      local.patternNotesSyncedAt,
+      cloud.patternNotesSyncedAt,
+      cloud.patternNotes,
       patternNotes
     )
   };

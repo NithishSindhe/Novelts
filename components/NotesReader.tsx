@@ -3,10 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateLabel } from "@/lib/date";
 import { NOVEL_NOTE_MAX } from "@/lib/limits";
 import { useTracker } from "@/lib/useTracker";
+import { isNoteUnsynced } from "@/lib/noteSync";
 import { CharCounter } from "@/components/CharCounter";
 
 const DELETED_TAG = "deleted";
@@ -21,7 +22,7 @@ interface NotesReaderProps {
 }
 
 export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
-  const { ready, state, editNote, toggleNotePin, softDeleteNote } = useTracker();
+  const { ready, state, editNote, toggleNotePin, softDeleteNote, syncMode, saveNoteToCloud } = useTracker();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -67,11 +68,41 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
     setEditingContent(activeNote.content);
   }
 
-  function saveEdit() {
-    if (!activeNote) return;
-    editNote(activeNote.id, { content: editingContent });
+  // Commit the in-progress edit to the local buffer. Used by the Save button
+  // and by auto-save when focus leaves the editor / the tab is hidden or
+  // closed. editNote no-ops when the content is unchanged.
+  const activeNoteId = activeNote?.id;
+  const commitEdit = useCallback(() => {
+    if (!activeNoteId) return;
+    if (editingContent.trim()) {
+      editNote(activeNoteId, { content: editingContent });
+    }
     setEditing(false);
+  }, [activeNoteId, editingContent, editNote]);
+
+  function saveEdit() {
+    commitEdit();
   }
+
+  // Flush an open edit when the tab is hidden or the page is closed/navigated.
+  const commitRef = useRef(commitEdit);
+  commitRef.current = commitEdit;
+  const cancelEditRef = useRef(false);
+  useEffect(() => {
+    if (!editing) return;
+    function flush() {
+      commitRef.current();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") flush();
+    }
+    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [editing]);
 
   function onDelete() {
     if (!activeNote) return;
@@ -150,8 +181,25 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
                           Pinned
                         </span>
                       ) : null}
+                      {syncMode === "cloud" && isNoteUnsynced(activeNote) ? (
+                        <span
+                          className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent"
+                          title="This note is saved on this device but not yet in the cloud."
+                        >
+                          Not saved to cloud
+                        </span>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-1">
+                      {syncMode === "cloud" && isNoteUnsynced(activeNote) ? (
+                        <button
+                          className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
+                          onClick={() => void saveNoteToCloud(activeNote.id)}
+                          type="button"
+                        >
+                          Save to cloud
+                        </button>
+                      ) : null}
                       <button
                         className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
                         onClick={editing ? saveEdit : startEdit}
@@ -179,15 +227,30 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
                   {editing ? (
                     <div className="mt-4 space-y-2 animate-expand-in">
                       <textarea
+                        autoFocus
                         className="min-h-[24rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none focus:border-accent"
                         maxLength={NOVEL_NOTE_MAX}
+                        onBlur={() => {
+                          if (cancelEditRef.current) {
+                            cancelEditRef.current = false;
+                            setEditing(false);
+                            return;
+                          }
+                          commitEdit();
+                        }}
                         onChange={(event) => setEditingContent(event.target.value)}
                         value={editingContent}
                       />
                       <CharCounter count={editingContent.length} max={NOVEL_NOTE_MAX} />
                       <button
                         className="rounded-xl border border-border px-3 py-1 text-xs text-fg-muted"
-                        onClick={() => setEditing(false)}
+                        onMouseDown={() => {
+                          cancelEditRef.current = true;
+                        }}
+                        onClick={() => {
+                          cancelEditRef.current = false;
+                          setEditing(false);
+                        }}
                         type="button"
                       >
                         Cancel
