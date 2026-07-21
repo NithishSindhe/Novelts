@@ -14,6 +14,10 @@ export interface NovelNote {
   content: string;
   date: string;
   screenshotDataUrl?: string;
+  // True when the note has a screenshot stored server-side but not yet loaded.
+  // The bulk tracker read omits the (potentially large) base64 blob; the UI
+  // lazy-loads it via GET /api/tracker/notes/[id]/screenshot on demand.
+  hasScreenshot?: boolean;
   pinned?: boolean;
   tags?: string[];
   createdAt: string;

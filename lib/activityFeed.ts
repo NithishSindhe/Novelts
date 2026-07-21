@@ -33,6 +33,21 @@ export interface ActivityEvent {
   href: string;
 }
 
+// Minimal, render-independent payload persisted per event (activity_events.metadata).
+// Everything needed to rebuild `text`/`href` at read time lives here, so the
+// feed copy has a single source of truth (renderEvent) shared by the server
+// read path and the client/anonymous path.
+export type ActivityMetadata = Record<string, unknown>;
+
+// A derived event before rendering: stable id (-> event_key), kind, timestamp
+// (-> ts) and the metadata needed to render it later.
+export interface DerivedActivityEvent {
+  id: string;
+  kind: ActivityKind;
+  timestamp: string;
+  metadata: ActivityMetadata;
+}
+
 // ---------------------------------------------------------------------------
 // LeetCode catalog lookups (built once from the in-code problem catalog).
 // ---------------------------------------------------------------------------
@@ -58,12 +73,17 @@ function leetcodeProblemHref(patternSlug: string): string {
 // ---------------------------------------------------------------------------
 // Builder
 // ---------------------------------------------------------------------------
-export function buildActivityFeed(
+// Derive the raw, render-independent event list from full state. Each event
+// carries a stable `id` (persisted as activity_events.event_key), a `kind`, a
+// `timestamp` (persisted as `ts`) and the minimal `metadata` needed to render
+// it later via renderEvent. This is the single derivation used both to
+// materialize the server-side feed at write time and to build the client feed
+// for anonymous/local users.
+export function deriveActivityEvents(
   tracker: TrackerState,
-  leetcode: LeetcodeState,
-  limit = 20
-): ActivityEvent[] {
-  const events: ActivityEvent[] = [];
+  leetcode: LeetcodeState
+): DerivedActivityEvent[] {
+  const events: DerivedActivityEvent[] = [];
 
   const activeNovels = tracker.novels.filter((novel) => !novel.tags?.includes(DELETED_TAG));
   const novelById = new Map(activeNovels.map((novel) => [novel.id, novel]));
@@ -75,8 +95,7 @@ export function buildActivityFeed(
       id: `novel-added:${novel.id}`,
       kind: "novel_added",
       timestamp: novel.createdAt,
-      text: `Added novel ${novel.title}`,
-      href: `/novels/${novel.id}`
+      metadata: { novelId: novel.id, title: novel.title }
     });
   }
 
@@ -113,21 +132,18 @@ export function buildActivityFeed(
   }
 
   for (const [key, bucket] of buckets) {
-    const parts: string[] = [];
-    if (bucket.words > 0) parts.push(`${bucket.words} ${bucket.words === 1 ? "word" : "words"}`);
-    if (bucket.characters > 0) {
-      parts.push(`${bucket.characters} ${bucket.characters === 1 ? "character" : "characters"}`);
-    }
-    if (parts.length === 0) continue;
-
+    if (bucket.words === 0 && bucket.characters === 0) continue;
     const novel = bucket.novelId ? novelById.get(bucket.novelId) : undefined;
-    const suffix = novel ? ` from ${novel.title}` : "";
     events.push({
       id: `novel-content:${key}`,
       kind: "novel_content",
       timestamp: bucket.latest,
-      text: `Added ${parts.join(" and ")}${suffix}`,
-      href: novel ? `/novels/${novel.id}` : "/"
+      metadata: {
+        novelId: novel?.id,
+        title: novel?.title,
+        words: bucket.words,
+        characters: bucket.characters
+      }
     });
   }
 
@@ -140,69 +156,176 @@ export function buildActivityFeed(
       id: `novel-note:${note.id}`,
       kind: "novel_note",
       timestamp: note.createdAt,
-      text: `Saved a note in ${novel?.title ?? "a novel"}`,
-      href: `/novels/${note.novelId}/notes`
+      metadata: { novelId: note.novelId, title: novel?.title }
     });
   }
 
   // Solved a LeetCode problem
   for (const [key, solvedAt] of Object.entries(leetcode.solvedAt)) {
-    const info = PROBLEM_BY_KEY.get(key);
-    if (!info) continue;
+    if (!PROBLEM_BY_KEY.has(key)) continue;
     events.push({
       id: `lc-solved:${key}`,
       kind: "leetcode_solved",
       timestamp: solvedAt,
-      text: `Solved ${info.title}`,
-      href: leetcodeProblemHref(info.patternSlug)
+      metadata: { problemKey: key }
     });
   }
 
   // Attempted a LeetCode problem (one event per recorded attempt)
   for (const [key, timestamps] of Object.entries(leetcode.attempts)) {
-    const info = PROBLEM_BY_KEY.get(key);
-    if (!info) continue;
+    if (!PROBLEM_BY_KEY.has(key)) continue;
     for (const attemptedAt of timestamps) {
       events.push({
         id: `lc-attempt:${key}:${attemptedAt}`,
         kind: "leetcode_attempt",
         timestamp: attemptedAt,
-        text: `Attempted ${info.title}`,
-        href: leetcodeProblemHref(info.patternSlug)
+        metadata: { problemKey: key }
       });
     }
   }
 
   // Saved a LeetCode problem note
   for (const [key, updatedAt] of Object.entries(leetcode.problemNotesUpdatedAt)) {
-    const info = PROBLEM_BY_KEY.get(key);
-    if (!info) continue;
+    if (!PROBLEM_BY_KEY.has(key)) continue;
     events.push({
       id: `lc-problem-note:${key}`,
       kind: "leetcode_problem_note",
       timestamp: updatedAt,
-      text: `Saved a note on ${info.title}`,
-      href: leetcodeProblemHref(info.patternSlug)
+      metadata: { problemKey: key }
     });
   }
 
   // Saved LeetCode pattern notes
   for (const [patternSlug, updatedAt] of Object.entries(leetcode.patternNotesUpdatedAt)) {
-    const name = PATTERN_NAME_BY_SLUG.get(patternSlug);
-    if (!name) continue;
+    if (!PATTERN_NAME_BY_SLUG.has(patternSlug)) continue;
     events.push({
       id: `lc-pattern-note:${patternSlug}`,
       kind: "leetcode_pattern_note",
       timestamp: updatedAt,
-      text: `Saved pattern notes for ${name}`,
-      href: leetcodeProblemHref(patternSlug)
+      metadata: { patternSlug }
     });
   }
 
+  return events.filter((event) => event.timestamp && !Number.isNaN(Date.parse(event.timestamp)));
+}
+
+// Render a derived event into its final display shape. This is the single
+// source of truth for feed copy/links, used by both the server read path
+// (rebuilding from activity_events rows) and the client feed. Returns null if
+// the event references a catalog entry that no longer exists.
+export function renderEvent(event: DerivedActivityEvent): ActivityEvent | null {
+  const m = event.metadata ?? {};
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  const num = (v: unknown) => (typeof v === "number" ? v : 0);
+
+  switch (event.kind) {
+    case "novel_added": {
+      const novelId = str(m.novelId);
+      return {
+        id: event.id,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        text: `Added novel ${str(m.title) ?? ""}`.trimEnd(),
+        href: novelId ? `/novels/${novelId}` : "/"
+      };
+    }
+    case "novel_content": {
+      const words = num(m.words);
+      const characters = num(m.characters);
+      const parts: string[] = [];
+      if (words > 0) parts.push(`${words} ${words === 1 ? "word" : "words"}`);
+      if (characters > 0) parts.push(`${characters} ${characters === 1 ? "character" : "characters"}`);
+      if (parts.length === 0) return null;
+      const title = str(m.title);
+      const novelId = str(m.novelId);
+      return {
+        id: event.id,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        text: `Added ${parts.join(" and ")}${title ? ` from ${title}` : ""}`,
+        href: novelId ? `/novels/${novelId}` : "/"
+      };
+    }
+    case "novel_note": {
+      const novelId = str(m.novelId);
+      return {
+        id: event.id,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        text: `Saved a note in ${str(m.title) ?? "a novel"}`,
+        href: novelId ? `/novels/${novelId}/notes` : "/"
+      };
+    }
+    case "leetcode_solved": {
+      const info = PROBLEM_BY_KEY.get(str(m.problemKey) ?? "");
+      if (!info) return null;
+      return {
+        id: event.id,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        text: `Solved ${info.title}`,
+        href: leetcodeProblemHref(info.patternSlug)
+      };
+    }
+    case "leetcode_attempt": {
+      const info = PROBLEM_BY_KEY.get(str(m.problemKey) ?? "");
+      if (!info) return null;
+      return {
+        id: event.id,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        text: `Attempted ${info.title}`,
+        href: leetcodeProblemHref(info.patternSlug)
+      };
+    }
+    case "leetcode_problem_note": {
+      const info = PROBLEM_BY_KEY.get(str(m.problemKey) ?? "");
+      if (!info) return null;
+      return {
+        id: event.id,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        text: `Saved a note on ${info.title}`,
+        href: leetcodeProblemHref(info.patternSlug)
+      };
+    }
+    case "leetcode_pattern_note": {
+      const patternSlug = str(m.patternSlug) ?? "";
+      const name = PATTERN_NAME_BY_SLUG.get(patternSlug);
+      if (!name) return null;
+      return {
+        id: event.id,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        text: `Saved pattern notes for ${name}`,
+        href: leetcodeProblemHref(patternSlug)
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+// Sort newest-first, render, drop stale/unrenderable events, and cap. Shared by
+// the client (from local state) and the server read path (from stored events).
+export function renderActivityFeed(events: DerivedActivityEvent[], limit = 20): ActivityEvent[] {
   return events
-    .filter((event) => event.timestamp && !Number.isNaN(Date.parse(event.timestamp)))
+    .slice()
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+    .map(renderEvent)
+    .filter((event): event is ActivityEvent => event !== null)
     .slice(0, limit);
+}
+
+// Convenience end-to-end builder: derive from full state and render. Used by the
+// client/anonymous path (components/HomeDashboard.tsx) so it matches the
+// server-materialized feed exactly.
+export function buildActivityFeed(
+  tracker: TrackerState,
+  leetcode: LeetcodeState,
+  limit = 20
+): ActivityEvent[] {
+  return renderActivityFeed(deriveActivityEvents(tracker, leetcode), limit);
 }
 
 // Convenience: compact relative time like "just now", "5m", "3h", "2d", "4w".

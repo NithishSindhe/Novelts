@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +8,7 @@ import { NOVEL_NOTE_MAX } from "@/lib/limits";
 import { useTracker } from "@/lib/useTracker";
 import { isNoteUnsynced } from "@/lib/noteSync";
 import { CharCounter } from "@/components/CharCounter";
+import { NoteScreenshot } from "@/components/NoteScreenshot";
 
 const DELETED_TAG = "deleted";
 
@@ -262,15 +262,8 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
                     </p>
                   )}
 
-                  {activeNote.screenshotDataUrl ? (
-                    <Image
-                      alt="Attached screenshot"
-                      className="mt-5 w-full rounded-2xl object-contain"
-                      height={720}
-                      src={activeNote.screenshotDataUrl}
-                      unoptimized
-                      width={1080}
-                    />
+                  {activeNote.screenshotDataUrl || activeNote.hasScreenshot ? (
+                    <NoteScreenshot note={activeNote} />
                   ) : null}
                 </>
               )}

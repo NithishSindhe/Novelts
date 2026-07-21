@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/server/db";
+import { materializeTrackerEvents } from "@/lib/server/activityRepo";
 import { clampToLimit, NOVEL_NOTE_MAX } from "@/lib/limits";
 import { normalizeTrackerState } from "@/lib/storage";
 import type { CharacterEntry, CheckInRecord, CheckInSource, Novel, NovelNote, TrackerState, WordEntry } from "@/lib/types";
@@ -44,12 +45,11 @@ export async function logActivityEvent(
   `;
 }
 
-export async function readTrackerState(userId: string): Promise<TrackerState> {
-  const sql = getDb();
+export async function readTrackerState(userId: string): Promise<TrackerState> {  const sql = getDb();
 
   const [novels, notes, words, characters, checkIns] = await Promise.all([
     sql`select id, title, author, tags, created_at from public.novels where user_id = ${userId} order by created_at desc`,
-    sql`select id, novel_id, content, date, screenshot_data_url, pinned, tags, created_at from public.notes where user_id = ${userId} order by created_at desc`,
+    sql`select id, novel_id, content, date, (screenshot_data_url is not null) as has_screenshot, pinned, tags, created_at from public.notes where user_id = ${userId} order by created_at desc`,
     sql`select id, word, meaning, context, novel_id, date, created_at from public.words where user_id = ${userId} order by created_at desc`,
     sql`select id, name, role, traits, novel_id, date, created_at from public.characters where user_id = ${userId} order by created_at desc`,
     sql`select date, sources, created_at from public.check_ins where user_id = ${userId}`
@@ -68,7 +68,8 @@ export async function readTrackerState(userId: string): Promise<TrackerState> {
       novelId: String(row.novel_id),
       content: String(row.content),
       date: String(row.date),
-      screenshotDataUrl: (row.screenshot_data_url as string | null) ?? undefined,
+      screenshotDataUrl: undefined,
+      hasScreenshot: Boolean(row.has_screenshot),
       pinned: Boolean(row.pinned),
       tags: (row.tags as string[]) ?? [],
       createdAt: new Date(row.created_at as string).toISOString()
@@ -168,9 +169,12 @@ export async function writeTrackerState(userId: string, input: unknown): Promise
   }
 
   await sql.transaction(statements);
-}
 
-// Upsert a small set of individual notes without touching the rest of the
+  // Materialize the derived activity feed from the full incoming state (which
+  // includes notes, even though notes are persisted via the per-note path).
+  // Kept out of the transaction above so a feed hiccup never fails a state save.
+  await materializeTrackerEvents(userId, state);
+}
 // user's tracker state. Used by the explicit per-note "Save to cloud" action so
 // that saving a note does not require a whole-state replace. Notes whose
 // novel_id no longer maps to one of the user's novels are stored with a null
@@ -216,4 +220,21 @@ export async function upsertNotes(userId: string, input: unknown): Promise<strin
 
   await sql.transaction(statements);
   return saved;
+}
+
+// Fetch a single note's screenshot data URL on demand. Scoped by user_id so a
+// user can only read their own note images. Returns null when the note does not
+// exist, is not owned by the user, or has no screenshot. Backs the lazy-load
+// path that keeps the bulk tracker read free of large base64 blobs.
+export async function readNoteScreenshot(userId: string, noteId: string): Promise<string | null> {
+  const sql = getDb();
+  const rows = (await sql`
+    select screenshot_data_url
+    from public.notes
+    where user_id = ${userId} and id = ${noteId}
+    limit 1
+  `) as Array<{ screenshot_data_url: string | null }>;
+
+  if (!rows.length) return null;
+  return rows[0].screenshot_data_url ?? null;
 }

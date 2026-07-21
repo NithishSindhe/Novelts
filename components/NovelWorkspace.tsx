@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateLabel, todayDateId } from "@/lib/date";
@@ -9,6 +8,7 @@ import { useTracker } from "@/lib/useTracker";
 import { isNoteUnsynced } from "@/lib/noteSync";
 import { useMountTransition } from "@/lib/useMountTransition";
 import { CharCounter } from "@/components/CharCounter";
+import { NoteScreenshot } from "@/components/NoteScreenshot";
 
 const DELETED_TAG = "deleted";
 
@@ -634,15 +634,8 @@ export function NovelWorkspace({ novelId, initialTitle, initialAuthor }: NovelWo
                       ) : (
                         <p className="mt-2 text-sm text-fg font-tech">{entry.content}</p>
                       )}
-                      {entry.screenshotDataUrl ? (
-                        <Image
-                          alt="Attached screenshot"
-                          className="mt-2 h-40 w-full rounded-lg object-cover"
-                          height={320}
-                          src={entry.screenshotDataUrl}
-                          unoptimized
-                          width={560}
-                        />
+                      {entry.screenshotDataUrl || entry.hasScreenshot ? (
+                        <NoteScreenshot note={entry} className="mt-2 h-40 w-full rounded-lg object-cover" />
                       ) : null}
                     </Link>
                   ))}

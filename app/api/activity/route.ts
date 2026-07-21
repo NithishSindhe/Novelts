@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
-import { buildActivityFeed } from "@/lib/activityFeed";
 import { resolveUserId } from "@/lib/server/authUser";
-import { readLeetcodeState } from "@/lib/server/leetcodeRepo";
-import { readTrackerState } from "@/lib/server/trackerRepo";
+import { readActivityFeed } from "@/lib/server/activityRepo";
 import { logServerError } from "@/lib/server/log";
 
-// Dedicated, read-only feed endpoint. It queries the full persisted state
-// (novels/words/characters/notes + LeetCode progress/notes) and derives the
-// GitHub-style recent-activity list server-side, so a page load never misses
-// activity that another hook happened not to fetch.
+// Dedicated, read-only feed endpoint. Backed by public.activity_events, which is
+// materialized at write time from the shared buildActivityFeed derivation. This
+// is a single indexed query (user_id + ts desc) rather than the former 9-query
+// full-state fan-out + in-memory derivation.
 export async function GET() {
   const userId = await resolveUserId();
   if (!userId) {
@@ -16,8 +14,7 @@ export async function GET() {
   }
 
   try {
-    const [tracker, leetcode] = await Promise.all([readTrackerState(userId), readLeetcodeState(userId)]);
-    const events = buildActivityFeed(tracker, leetcode);
+    const events = await readActivityFeed(userId);
     return NextResponse.json({ events });
   } catch (error) {
     logServerError("GET /api/activity", error);

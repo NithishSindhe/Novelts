@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/server/db";
+import { materializeLeetcodeEvents } from "@/lib/server/activityRepo";
 import { clampToLimit, LEETCODE_PATTERN_NOTE_MAX, LEETCODE_PROBLEM_NOTE_MAX } from "@/lib/limits";
 import { normalizeState, type LeetcodeState } from "@/lib/leetcodeStorage";
 
@@ -106,6 +107,11 @@ export async function writeLeetcodeState(userId: string, input: unknown): Promis
   }
 
   await sql.transaction(statements);
+
+  // Materialize the derived activity feed from the full incoming state (solves,
+  // attempts, and note timestamps). Outside the transaction so a feed hiccup
+  // never fails a state save.
+  await materializeLeetcodeEvents(userId, state);
 }
 
 export type LeetcodeNoteKind = "problem" | "pattern";
