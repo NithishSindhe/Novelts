@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { resolveUserId } from "@/lib/server/authUser";
 import { setSolved } from "@/lib/server/leetcodeRepo";
 import { recordLeetcodeSolvedEvent } from "@/lib/server/activityRepo";
+import { upsertCheckIn } from "@/lib/server/trackerRepo";
+import { dateIdFromLocal, isDateAllowedForCheckIn } from "@/lib/date";
 import { logServerError } from "@/lib/server/log";
 
 // Interactive, single-problem solved toggle. Backs the "mark solved" action so
@@ -31,6 +33,20 @@ export async function POST(request: Request) {
   try {
     const effectiveAt = await setSolved(userId, body.key, body.solved, solvedAt);
     await recordLeetcodeSolvedEvent(userId, body.key, body.solved, effectiveAt || undefined);
+
+    // Marking a problem solved counts as activity for that day. Additive and
+    // idempotent; failure here must not fail the solve write.
+    if (body.solved && effectiveAt) {
+      try {
+        const date = dateIdFromLocal(new Date(effectiveAt));
+        if (isDateAllowedForCheckIn(date)) {
+          await upsertCheckIn(userId, date, "leetcode");
+        }
+      } catch (checkInError) {
+        logServerError("POST /api/leetcode/solve check-in", checkInError);
+      }
+    }
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     logServerError("POST /api/leetcode/solve", error);

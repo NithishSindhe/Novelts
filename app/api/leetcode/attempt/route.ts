@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { resolveUserId } from "@/lib/server/authUser";
 import { addAttempt } from "@/lib/server/leetcodeRepo";
 import { recordLeetcodeAttemptEvent } from "@/lib/server/activityRepo";
+import { upsertCheckIn } from "@/lib/server/trackerRepo";
+import { dateIdFromLocal, isDateAllowedForCheckIn } from "@/lib/date";
 import { logServerError } from "@/lib/server/log";
 
 // Interactive, single-attempt append. Backs the "record attempt" action so each
@@ -28,6 +30,18 @@ export async function POST(request: Request) {
   try {
     const savedAt = await addAttempt(userId, body.key, attemptedAt);
     await recordLeetcodeAttemptEvent(userId, body.key, savedAt);
+
+    // Recording an attempt counts as activity for that day. Additive and
+    // idempotent; failure here must not fail the attempt write.
+    try {
+      const date = dateIdFromLocal(new Date(savedAt));
+      if (isDateAllowedForCheckIn(date)) {
+        await upsertCheckIn(userId, date, "leetcode");
+      }
+    } catch (checkInError) {
+      logServerError("POST /api/leetcode/attempt check-in", checkInError);
+    }
+
     return NextResponse.json({ ok: true, savedAt });
   } catch (error) {
     logServerError("POST /api/leetcode/attempt", error);

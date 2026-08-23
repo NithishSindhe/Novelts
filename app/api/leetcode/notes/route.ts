@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { resolveUserId } from "@/lib/server/authUser";
 import { upsertLeetcodeNote, type LeetcodeNoteKind } from "@/lib/server/leetcodeRepo";
+import { upsertCheckIn } from "@/lib/server/trackerRepo";
+import { dateIdFromLocal, isDateAllowedForCheckIn } from "@/lib/date";
 import { logServerError } from "@/lib/server/log";
 
 // Per-note save endpoint for LeetCode problem/pattern notes. Persists (or, when
@@ -31,6 +33,21 @@ export async function POST(request: Request) {
 
   try {
     const savedAt = await upsertLeetcodeNote(userId, kind as LeetcodeNoteKind, body.key, note, updatedAt);
+
+    // Writing a note counts as activity for that day. Skip clears/deletes (an
+    // empty note removes the row). Additive and idempotent; failure here must
+    // not fail the note save.
+    if (note.trim().length > 0) {
+      try {
+        const date = dateIdFromLocal(new Date(savedAt));
+        if (isDateAllowedForCheckIn(date)) {
+          await upsertCheckIn(userId, date, "note");
+        }
+      } catch (checkInError) {
+        logServerError("POST /api/leetcode/notes check-in", checkInError);
+      }
+    }
+
     return NextResponse.json({ ok: true, savedAt });
   } catch (error) {
     logServerError("POST /api/leetcode/notes", error);
