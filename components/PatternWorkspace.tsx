@@ -105,6 +105,13 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
     router.replace(`/leetcode/${patternSlug}?${params.toString()}`, { scroll: false });
   }
 
+  function closeNote() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("note");
+    const query = params.toString();
+    router.replace(`/leetcode/${patternSlug}${query ? `?${query}` : ""}`, { scroll: false });
+  }
+
   if (ready && !pattern) {
     return (
       <main className="theme-five flex-1 bg-background px-4 safe-bottom-offset pt-8 text-fg">
@@ -122,6 +129,80 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
       </main>
     );
   }
+
+  const paneContent = !activeNote ? (
+    <p className="text-sm font-tech text-fg-muted">
+      Select the pattern note or any problem&apos;s note to read and edit it here.
+    </p>
+  ) : activeNote === "pattern" ? (
+    <>
+      <h2 className="font-atlas text-lg font-semibold text-fg">Pattern note</h2>
+      <p className="mt-0.5 font-tech text-xs text-fg-subtle">{pattern?.name}</p>
+      <textarea
+        autoFocus
+        className="themed-scrollbar mt-4 min-h-[22rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
+        defaultValue={getPatternNote(patternSlug)}
+        key={`pattern-${patternSlug}`}
+        maxLength={LEETCODE_PATTERN_NOTE_MAX}
+        onChange={(event) => {
+          setEditorLength(event.target.value.length);
+          setPatternNote(patternSlug, event.target.value);
+        }}
+        placeholder="Notes for this pattern (approach, template, gotchas)…"
+      />
+      <CharCounter count={editorLength} max={LEETCODE_PATTERN_NOTE_MAX} className="mt-1" />
+      <NoteSaveBar
+        isSignedIn={isSignedIn}
+        hasNote={Boolean(getPatternNote(patternSlug).trim())}
+        unsynced={isPatternNoteUnsynced(patternSlug)}
+        saveState={getNoteSaveState("pattern", patternSlug)}
+        onSave={() => void savePatternNoteToCloud(patternSlug)}
+      />
+    </>
+  ) : (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-atlas text-lg font-semibold text-fg">{activeNote.title}</h2>
+          <a
+            className="mt-0.5 inline-block font-tech text-xs text-accent hover:underline"
+            href={activeNote.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Open problem on LeetCode ↗
+          </a>
+        </div>
+        <span
+          className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide ${DIFFICULTY_STYLES[activeNote.difficulty]}`}
+        >
+          {activeNote.difficulty}
+        </span>
+      </div>
+      <textarea
+        autoFocus
+        className="themed-scrollbar mt-4 min-h-[22rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
+        defaultValue={getProblemNote(activeNote.key)}
+        key={activeNote.key}
+        maxLength={LEETCODE_PROBLEM_NOTE_MAX}
+        onChange={(event) => {
+          setEditorLength(event.target.value.length);
+          setProblemNote(activeNote.key, event.target.value);
+        }}
+        placeholder="Notes for this problem (approach, edge cases, complexity)…"
+      />
+      <CharCounter count={editorLength} max={LEETCODE_PROBLEM_NOTE_MAX} className="mt-1" />
+      <NoteSaveBar
+        isSignedIn={isSignedIn}
+        hasNote={Boolean(getProblemNote(activeNote.key).trim())}
+        unsynced={isProblemNoteUnsynced(activeNote.key)}
+        saveState={getNoteSaveState("problem", activeNote.key)}
+        onSave={() => void saveProblemNoteToCloud(activeNote.key)}
+      />
+    </>
+  );
+
+  const activeNoteHeading = activeNote === "pattern" ? "Pattern note" : activeNote?.title ?? "Note";
 
   return (
     <main className="theme-five flex-1 bg-background px-4 safe-bottom-offset pt-8 text-fg">
@@ -299,83 +380,42 @@ export function PatternWorkspace({ patternSlug, selectedNote }: PatternWorkspace
               </ul>
             </div>
 
-            {/* Reading / editing pane */}
-            <div className="min-h-[24rem] rounded-[2rem] border border-border bg-surface p-6 animate-rise-in lg:sticky lg:top-8" style={{ animationDelay: "80ms" }}>
-              {!activeNote ? (
-                <p className="text-sm font-tech text-fg-muted">
-                  Select the pattern note or any problem&apos;s note to read and edit it here.
-                </p>
-              ) : activeNote === "pattern" ? (
-                <>
-                  <h2 className="font-atlas text-lg font-semibold text-fg">Pattern note</h2>
-                  <p className="mt-0.5 font-tech text-xs text-fg-subtle">{pattern?.name}</p>
-                  <textarea
-                    autoFocus
-                    className="themed-scrollbar mt-4 min-h-[22rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
-                    defaultValue={getPatternNote(patternSlug)}
-                    key={`pattern-${patternSlug}`}
-                    maxLength={LEETCODE_PATTERN_NOTE_MAX}
-                    onChange={(event) => {
-                      setEditorLength(event.target.value.length);
-                      setPatternNote(patternSlug, event.target.value);
-                    }}
-                    placeholder="Notes for this pattern (approach, template, gotchas)…"
-                  />
-                  <CharCounter count={editorLength} max={LEETCODE_PATTERN_NOTE_MAX} className="mt-1" />
-                  <NoteSaveBar
-                    isSignedIn={isSignedIn}
-                    hasNote={Boolean(getPatternNote(patternSlug).trim())}
-                    unsynced={isPatternNoteUnsynced(patternSlug)}
-                    saveState={getNoteSaveState("pattern", patternSlug)}
-                    onSave={() => void savePatternNoteToCloud(patternSlug)}
-                  />
-                </>
-              ) : (
-                <>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="font-atlas text-lg font-semibold text-fg">{activeNote.title}</h2>
-                      <a
-                        className="mt-0.5 inline-block font-tech text-xs text-accent hover:underline"
-                        href={activeNote.url}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Open problem on LeetCode ↗
-                      </a>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full border px-2 py-0.5 font-tech text-[10px] uppercase tracking-wide ${DIFFICULTY_STYLES[activeNote.difficulty]}`}
-                    >
-                      {activeNote.difficulty}
-                    </span>
-                  </div>
-                  <textarea
-                    autoFocus
-                    className="themed-scrollbar mt-4 min-h-[22rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
-                    defaultValue={getProblemNote(activeNote.key)}
-                    key={activeNote.key}
-                    maxLength={LEETCODE_PROBLEM_NOTE_MAX}
-                    onChange={(event) => {
-                      setEditorLength(event.target.value.length);
-                      setProblemNote(activeNote.key, event.target.value);
-                    }}
-                    placeholder="Notes for this problem (approach, edge cases, complexity)…"
-                  />
-                  <CharCounter count={editorLength} max={LEETCODE_PROBLEM_NOTE_MAX} className="mt-1" />
-                  <NoteSaveBar
-                    isSignedIn={isSignedIn}
-                    hasNote={Boolean(getProblemNote(activeNote.key).trim())}
-                    unsynced={isProblemNoteUnsynced(activeNote.key)}
-                    saveState={getNoteSaveState("problem", activeNote.key)}
-                    onSave={() => void saveProblemNoteToCloud(activeNote.key)}
-                  />
-                </>
-              )}
+            {/* Reading / editing pane (desktop) */}
+            <div className="hidden min-h-[24rem] rounded-[2rem] border border-border bg-surface p-6 animate-rise-in lg:sticky lg:top-8 lg:block" style={{ animationDelay: "80ms" }}>
+              {paneContent}
             </div>
           </section>
         )}
       </div>
+
+      {/* Reading / editing pane (mobile reader overlay) */}
+      {activeNote ? (
+        <div
+          aria-label={activeNoteHeading}
+          aria-modal="true"
+          className="fixed inset-0 z-[70] flex flex-col bg-black/60 backdrop-blur-sm animate-fade-in lg:hidden"
+          onClick={closeNote}
+          role="dialog"
+        >
+          <div
+            className="mt-auto flex max-h-[92vh] flex-col rounded-t-[2rem] border-t border-border bg-surface safe-bottom-offset"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+              <span className="truncate font-atlas text-sm font-semibold text-fg">{activeNoteHeading}</span>
+              <button
+                aria-label="Close note"
+                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-tech text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+                onClick={closeNote}
+                type="button"
+              >
+                Close ✕
+              </button>
+            </div>
+            <div className="themed-scrollbar overflow-y-auto px-5 pb-5 pt-4">{paneContent}</div>
+          </div>
+        </div>
+      ) : null}
 
       {confirmAttemptKey ? (
         <div

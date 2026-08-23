@@ -62,6 +62,17 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
     router.replace(`/novels/${novelId}/notes?${params.toString()}`, { scroll: false });
   }
 
+  // The detail pane defaults to the first note on desktop; the mobile reader
+  // overlay should only open when the user has explicitly picked a note.
+  const explicitlySelected = Boolean(activeNote && selectedNoteId === activeNote.id);
+
+  function closeNote() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("note");
+    const query = params.toString();
+    router.replace(`/novels/${novelId}/notes${query ? `?${query}` : ""}`, { scroll: false });
+  }
+
   function startEdit() {
     if (!activeNote) return;
     setEditing(true);
@@ -110,6 +121,105 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
     if (!shouldDelete) return;
     softDeleteNote(activeNote.id);
   }
+
+  const detailContent = !activeNote ? (
+    <p className="text-sm text-fg-muted font-tech">Select a note to read it here.</p>
+  ) : (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-accent font-tech">{formatDateLabel(activeNote.date)}</p>
+          {activeNote.pinned ? (
+            <span className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent">
+              Pinned
+            </span>
+          ) : null}
+          {syncMode === "cloud" && isNoteUnsynced(activeNote) ? (
+            <span
+              className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent"
+              title="This note is saved on this device but not yet in the cloud."
+            >
+              Not saved to cloud
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1">
+          {syncMode === "cloud" && isNoteUnsynced(activeNote) ? (
+            <button
+              className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
+              onClick={() => void saveNoteToCloud(activeNote.id)}
+              type="button"
+            >
+              Save to cloud
+            </button>
+          ) : null}
+          <button
+            className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
+            onClick={editing ? saveEdit : startEdit}
+            type="button"
+          >
+            {editing ? "Save" : "Edit"}
+          </button>
+          <button
+            className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
+            onClick={() => toggleNotePin(activeNote.id)}
+            type="button"
+          >
+            {activeNote.pinned ? "Unpin" : "Pin"}
+          </button>
+          <button
+            className="rounded-xl border border-danger px-3 py-1 text-[11px] uppercase tracking-wide text-danger"
+            onClick={onDelete}
+            type="button"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="mt-4 space-y-2 animate-expand-in">
+          <textarea
+            autoFocus
+            className="min-h-[24rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none focus:border-accent"
+            maxLength={NOVEL_NOTE_MAX}
+            onBlur={() => {
+              if (cancelEditRef.current) {
+                cancelEditRef.current = false;
+                setEditing(false);
+                return;
+              }
+              commitEdit();
+            }}
+            onChange={(event) => setEditingContent(event.target.value)}
+            value={editingContent}
+          />
+          <CharCounter count={editingContent.length} max={NOVEL_NOTE_MAX} />
+          <button
+            className="rounded-xl border border-border px-3 py-1 text-xs text-fg-muted"
+            onMouseDown={() => {
+              cancelEditRef.current = true;
+            }}
+            onClick={() => {
+              cancelEditRef.current = false;
+              setEditing(false);
+            }}
+            type="button"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <p className="mt-4 whitespace-pre-wrap text-base leading-relaxed text-fg font-tech">
+          {activeNote.content}
+        </p>
+      )}
+
+      {activeNote.screenshotDataUrl || activeNote.hasScreenshot ? (
+        <NoteScreenshot note={activeNote} />
+      ) : null}
+    </>
+  );
 
   return (
     <main className="theme-five flex-1 bg-background px-4 safe-bottom-offset pt-8 text-fg">
@@ -167,110 +277,44 @@ export function NotesReader({ novelId, selectedNoteId }: NotesReaderProps) {
               </div>
             </aside>
 
-            {/* Detail reading pane */}
-            <article className="min-h-[24rem] rounded-[2rem] border border-border bg-surface p-6 animate-rise-in" style={{ animationDelay: "80ms" }}>
-              {!activeNote ? (
-                <p className="text-sm text-fg-muted font-tech">Select a note to read it here.</p>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-accent font-tech">{formatDateLabel(activeNote.date)}</p>
-                      {activeNote.pinned ? (
-                        <span className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent">
-                          Pinned
-                        </span>
-                      ) : null}
-                      {syncMode === "cloud" && isNoteUnsynced(activeNote) ? (
-                        <span
-                          className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent"
-                          title="This note is saved on this device but not yet in the cloud."
-                        >
-                          Not saved to cloud
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {syncMode === "cloud" && isNoteUnsynced(activeNote) ? (
-                        <button
-                          className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
-                          onClick={() => void saveNoteToCloud(activeNote.id)}
-                          type="button"
-                        >
-                          Save to cloud
-                        </button>
-                      ) : null}
-                      <button
-                        className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
-                        onClick={editing ? saveEdit : startEdit}
-                        type="button"
-                      >
-                        {editing ? "Save" : "Edit"}
-                      </button>
-                      <button
-                        className="rounded-xl border border-accent-border px-3 py-1 text-[11px] uppercase tracking-wide text-accent"
-                        onClick={() => toggleNotePin(activeNote.id)}
-                        type="button"
-                      >
-                        {activeNote.pinned ? "Unpin" : "Pin"}
-                      </button>
-                      <button
-                        className="rounded-xl border border-danger px-3 py-1 text-[11px] uppercase tracking-wide text-danger"
-                        onClick={onDelete}
-                        type="button"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {editing ? (
-                    <div className="mt-4 space-y-2 animate-expand-in">
-                      <textarea
-                        autoFocus
-                        className="min-h-[24rem] w-full resize-y rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base leading-relaxed text-fg outline-none focus:border-accent"
-                        maxLength={NOVEL_NOTE_MAX}
-                        onBlur={() => {
-                          if (cancelEditRef.current) {
-                            cancelEditRef.current = false;
-                            setEditing(false);
-                            return;
-                          }
-                          commitEdit();
-                        }}
-                        onChange={(event) => setEditingContent(event.target.value)}
-                        value={editingContent}
-                      />
-                      <CharCounter count={editingContent.length} max={NOVEL_NOTE_MAX} />
-                      <button
-                        className="rounded-xl border border-border px-3 py-1 text-xs text-fg-muted"
-                        onMouseDown={() => {
-                          cancelEditRef.current = true;
-                        }}
-                        onClick={() => {
-                          cancelEditRef.current = false;
-                          setEditing(false);
-                        }}
-                        type="button"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="mt-4 whitespace-pre-wrap text-base leading-relaxed text-fg font-tech">
-                      {activeNote.content}
-                    </p>
-                  )}
-
-                  {activeNote.screenshotDataUrl || activeNote.hasScreenshot ? (
-                    <NoteScreenshot note={activeNote} />
-                  ) : null}
-                </>
-              )}
+            {/* Detail reading pane (desktop) */}
+            <article className="hidden min-h-[24rem] rounded-[2rem] border border-border bg-surface p-6 animate-rise-in xl:block" style={{ animationDelay: "80ms" }}>
+              {detailContent}
             </article>
           </section>
         )}
       </div>
+
+      {/* Detail reading pane (mobile reader overlay) */}
+      {explicitlySelected && activeNote ? (
+        <div
+          aria-label={`Note ${formatDateLabel(activeNote.date)}`}
+          aria-modal="true"
+          className="fixed inset-0 z-[70] flex flex-col bg-black/60 backdrop-blur-sm animate-fade-in xl:hidden"
+          onClick={closeNote}
+          role="dialog"
+        >
+          <div
+            className="mt-auto flex max-h-[92vh] flex-col rounded-t-[2rem] border-t border-border bg-surface safe-bottom-offset"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+              <span className="truncate font-atlas text-sm font-semibold text-fg">
+                {formatDateLabel(activeNote.date)}
+              </span>
+              <button
+                aria-label="Close note"
+                className="shrink-0 rounded-full border border-border px-2.5 py-1 font-tech text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+                onClick={closeNote}
+                type="button"
+              >
+                Close ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto px-5 pb-5 pt-4">{detailContent}</div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
