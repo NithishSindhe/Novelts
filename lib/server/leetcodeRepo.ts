@@ -73,31 +73,69 @@ export async function readLeetcodeState(userId: string): Promise<LeetcodeState> 
   return normalizeState(state);
 }
 
+// Reconcile the full LeetCode progress state against what is already persisted,
+// writing only the differences. This is the whole-state safety-net path (used
+// for local -> cloud reconciliation); the common interactive writes go through
+// setSolved / addAttempt below.
+//
+// Cost is proportional to what actually changed, not to the user's total
+// history: unchanged solves/attempts produce no writes at all.
+//
+// Invariants:
+//   - Attempts are append-only. They are NEVER deleted here, even when a
+//     problem is un-solved.
+//   - problem/pattern notes are intentionally NOT written here. They are
+//     persisted only via upsertLeetcodeNote (the /api/leetcode/notes route) so
+//     that this whole-state sync can never clobber a cloud note saved
+//     explicitly.
 export async function writeLeetcodeState(userId: string, input: unknown): Promise<void> {
   const state = normalizeState(input);
   const sql = getDb();
 
   await ensureUser(userId);
 
-  // NOTE: problem/pattern notes are intentionally NOT written here. They are
-  // persisted only via upsertLeetcodeNote (the /api/leetcode/notes route) so
-  // that the periodic whole-state sync of solved/attempts can never clobber a
-  // cloud note that was saved explicitly. Deleting notes here would wipe them.
-  const statements = [
-    sql`delete from public.leetcode_solved where user_id = ${userId}`,
-    sql`delete from public.leetcode_attempts where user_id = ${userId}`
-  ];
+  // Snapshot current DB state so we can diff against the incoming state.
+  const [solvedRows, attemptRows] = await Promise.all([
+    sql`select problem_key from public.leetcode_solved where user_id = ${userId}`,
+    sql`select problem_key, attempted_at from public.leetcode_attempts where user_id = ${userId}`
+  ]);
 
-  for (const key of Object.keys(state.solved)) {
+  const dbSolved = new Set((solvedRows as Array<{ problem_key: string }>).map((row) => row.problem_key));
+  const incomingSolved = new Set(Object.keys(state.solved));
+
+  // Existing attempt tuples, keyed by `${problem_key}\u0000${epochMs}` so we can
+  // skip re-inserting timestamps that are already stored.
+  const dbAttempts = new Set(
+    (attemptRows as Array<{ problem_key: string; attempted_at: string }>).map(
+      (row) => `${row.problem_key}\u0000${new Date(row.attempted_at).getTime()}`
+    )
+  );
+
+  const statements = [];
+
+  // Solved: insert newly-solved keys, delete keys that are no longer solved.
+  for (const key of incomingSolved) {
+    if (dbSolved.has(key)) continue;
     const solvedAt = state.solvedAt[key] ?? null;
     statements.push(sql`
       insert into public.leetcode_solved (user_id, problem_key, solved_at)
       values (${userId}, ${key}, coalesce(${solvedAt}::timestamptz, timezone('utc', now())))
+      on conflict (user_id, problem_key) do nothing
+    `);
+  }
+  for (const key of dbSolved) {
+    if (incomingSolved.has(key)) continue;
+    statements.push(sql`
+      delete from public.leetcode_solved where user_id = ${userId} and problem_key = ${key}
     `);
   }
 
+  // Attempts: append-only. Insert only tuples not already stored; never delete.
   for (const [key, timestamps] of Object.entries(state.attempts)) {
     for (const attemptedAt of timestamps) {
+      const ms = Date.parse(attemptedAt);
+      if (Number.isNaN(ms)) continue;
+      if (dbAttempts.has(`${key}\u0000${ms}`)) continue;
       statements.push(sql`
         insert into public.leetcode_attempts (user_id, problem_key, attempted_at)
         values (${userId}, ${key}, ${attemptedAt}::timestamptz)
@@ -106,12 +144,57 @@ export async function writeLeetcodeState(userId: string, input: unknown): Promis
     }
   }
 
-  await sql.transaction(statements);
+  if (statements.length) {
+    await sql.transaction(statements);
+  }
 
   // Materialize the derived activity feed from the full incoming state (solves,
   // attempts, and note timestamps). Outside the transaction so a feed hiccup
   // never fails a state save.
   await materializeLeetcodeEvents(userId, state);
+}
+
+// Toggle a single problem's solved status. O(1) write used by the interactive
+// /api/leetcode/solve endpoint. Un-solving deletes only the solved row; the
+// problem's attempt history is intentionally preserved. Returns the effective
+// solved-at timestamp used (empty string on un-solve) so the caller can
+// materialize a matching activity-feed event.
+export async function setSolved(
+  userId: string,
+  key: string,
+  solved: boolean,
+  solvedAt?: string
+): Promise<string> {
+  const sql = getDb();
+  await ensureUser(userId);
+
+  if (!solved) {
+    await sql`delete from public.leetcode_solved where user_id = ${userId} and problem_key = ${key}`;
+    return "";
+  }
+
+  const at = solvedAt && !Number.isNaN(Date.parse(solvedAt)) ? solvedAt : new Date().toISOString();
+  await sql`
+    insert into public.leetcode_solved (user_id, problem_key, solved_at)
+    values (${userId}, ${key}, ${at}::timestamptz)
+    on conflict (user_id, problem_key) do nothing
+  `;
+  return at;
+}
+
+// Append a single attempt timestamp for a problem. O(1) append used by the
+// interactive /api/leetcode/attempt endpoint. Duplicate timestamps are ignored.
+export async function addAttempt(userId: string, key: string, attemptedAt?: string): Promise<string> {
+  const sql = getDb();
+  await ensureUser(userId);
+
+  const at = attemptedAt && !Number.isNaN(Date.parse(attemptedAt)) ? attemptedAt : new Date().toISOString();
+  await sql`
+    insert into public.leetcode_attempts (user_id, problem_key, attempted_at)
+    values (${userId}, ${key}, ${at}::timestamptz)
+    on conflict (user_id, problem_key, attempted_at) do nothing
+  `;
+  return at;
 }
 
 export type LeetcodeNoteKind = "problem" | "pattern";

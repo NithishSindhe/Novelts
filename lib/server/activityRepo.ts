@@ -88,6 +88,73 @@ export async function materializeLeetcodeEvents(userId: string, leetcode: Leetco
   await materialize(userId, LEETCODE_KINDS, deriveActivityEvents(EMPTY_TRACKER, leetcode));
 }
 
+// Upsert a set of already-derived events for this user WITHOUT pruning any
+// existing rows. Used by the interactive single-item write paths so a solve /
+// attempt updates the feed in O(1) instead of re-deriving the whole state.
+async function upsertEvents(userId: string, events: DerivedActivityEvent[]): Promise<void> {
+  const renderable = events.filter((event) => renderEvent(event));
+  if (!renderable.length) return;
+
+  const sql = getDb();
+  const statements = renderable.map((event) => {
+    const date = event.timestamp.slice(0, 10);
+    return sql`
+      insert into public.activity_events (user_id, event_key, kind, ts, date, metadata)
+      values (
+        ${userId},
+        ${event.id},
+        ${event.kind},
+        ${event.timestamp}::timestamptz,
+        ${date},
+        ${JSON.stringify(event.metadata ?? {})}
+      )
+      on conflict (user_id, event_key) where event_key is not null
+        do update set kind = excluded.kind, ts = excluded.ts, date = excluded.date, metadata = excluded.metadata
+    `;
+  });
+
+  await sql.transaction(statements);
+}
+
+// Interactive feed update for a single solved-status change. Solving upserts the
+// `lc-solved:<key>` event; un-solving removes it. O(1), no full-state derivation.
+export async function recordLeetcodeSolvedEvent(
+  userId: string,
+  key: string,
+  solved: boolean,
+  solvedAt?: string
+): Promise<void> {
+  if (!solved) {
+    const sql = getDb();
+    await sql`
+      delete from public.activity_events
+      where user_id = ${userId} and event_key = ${`lc-solved:${key}`}
+    `;
+    return;
+  }
+
+  const state: LeetcodeState = {
+    ...EMPTY_LEETCODE,
+    solved: { [key]: true },
+    solvedAt: solvedAt ? { [key]: solvedAt } : {}
+  };
+  await upsertEvents(userId, deriveActivityEvents(EMPTY_TRACKER, state));
+}
+
+// Interactive feed update for a single recorded attempt. Upserts the
+// `lc-attempt:<key>:<ts>` event. O(1), no full-state derivation.
+export async function recordLeetcodeAttemptEvent(
+  userId: string,
+  key: string,
+  attemptedAt: string
+): Promise<void> {
+  const state: LeetcodeState = {
+    ...EMPTY_LEETCODE,
+    attempts: { [key]: [attemptedAt] }
+  };
+  await upsertEvents(userId, deriveActivityEvents(EMPTY_TRACKER, state));
+}
+
 // Single indexed read that backs GET /api/activity. Replaces the previous
 // 9-query full-state fan-out + in-memory derivation.
 export async function readActivityFeed(userId: string, limit = 20): Promise<ActivityEvent[]> {

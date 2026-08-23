@@ -90,6 +90,39 @@ export function useLeetcode() {
     [syncMode]
   );
 
+  // Interactive, single-problem cloud writes. These make a solve/attempt an
+  // O(1) server write instead of relying on the whole-state PUT to resync the
+  // user's entire history. The whole-state PUT effect below still runs as a
+  // cheap, diff-based reconciliation safety net. Fire-and-forget: on failure
+  // the signature guard is cleared so the PUT effect re-pushes the change.
+  const pushSolve = useCallback(
+    (key: string, solved: boolean, solvedAt?: string) => {
+      if (syncMode !== "cloud" || !cloudUserIdRef.current) return;
+      void fetch("/api/leetcode/solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, solved, solvedAt })
+      }).catch(() => {
+        lastSyncSignatureRef.current = null;
+      });
+    },
+    [syncMode]
+  );
+
+  const pushAttempt = useCallback(
+    (key: string, attemptedAt: string) => {
+      if (syncMode !== "cloud" || !cloudUserIdRef.current) return;
+      void fetch("/api/leetcode/attempt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, attemptedAt })
+      }).catch(() => {
+        lastSyncSignatureRef.current = null;
+      });
+    },
+    [syncMode]
+  );
+
   useEffect(() => {
     if (!authLoaded) return;
 
@@ -189,6 +222,7 @@ export function useLeetcode() {
   const toggle = useCallback(
     (key: string) => {
       let becameSolved = false;
+      let nextSolvedAt: string | undefined;
       setState((current) => {
         const solved = { ...current.solved };
         const solvedAt = { ...current.solvedAt };
@@ -197,16 +231,23 @@ export function useLeetcode() {
           delete solvedAt[key];
         } else {
           solved[key] = true;
-          solvedAt[key] = new Date().toISOString();
+          nextSolvedAt = new Date().toISOString();
+          solvedAt[key] = nextSolvedAt;
           becameSolved = true;
         }
-        return { ...current, solved, solvedAt };
+        const next = { ...current, solved, solvedAt };
+        // The change is persisted via the incremental /api/leetcode/solve call
+        // below, so pre-stamp the sync signature to suppress a redundant
+        // whole-state PUT for this routine toggle.
+        lastSyncSignatureRef.current = syncSignature(next);
+        return next;
       });
+      pushSolve(key, becameSolved, nextSolvedAt);
       if (becameSolved) {
         checkInFromLeetcode("leetcode_solved", key);
       }
     },
-    [checkInFromLeetcode]
+    [checkInFromLeetcode, pushSolve]
   );
 
   const isSolved = useCallback((key: string) => Boolean(state.solved[key]), [state.solved]);
@@ -217,15 +258,21 @@ export function useLeetcode() {
   // attempts are never modified or removed.
   const recordAttempt = useCallback(
     (key: string) => {
+      const attemptedAt = new Date().toISOString();
       setState((current) => {
         const attempts = { ...current.attempts };
         const existing = attempts[key] ?? [];
-        attempts[key] = [...existing, new Date().toISOString()];
-        return { ...current, attempts };
+        attempts[key] = [...existing, attemptedAt];
+        const next = { ...current, attempts };
+        // Persisted via the incremental /api/leetcode/attempt call below;
+        // pre-stamp the signature to suppress a redundant whole-state PUT.
+        lastSyncSignatureRef.current = syncSignature(next);
+        return next;
       });
+      pushAttempt(key, attemptedAt);
       checkInFromLeetcode("leetcode_attempt", key);
     },
-    [checkInFromLeetcode]
+    [checkInFromLeetcode, pushAttempt]
   );
 
   const getAttempts = useCallback((key: string) => state.attempts[key] ?? [], [state.attempts]);
